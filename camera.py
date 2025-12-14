@@ -22,13 +22,18 @@ class Camera:
         )
         self.max_zoom_level = int(min(screen_width / 5, screen_height / 5))
 
-    def update(self, keys, zoom_speed, scroll_speed, player):
+    def update(self, keys, zoom_speed, scroll_speed, focus_entity):
         """
-
         Updates camera position and zoom based on user input.
 
-        Returns a boolean indicating if textures need to be rescaled.
+        Args:
+            keys: The current keyboard state.
+            zoom_speed: Speed of zooming.
+            scroll_speed: Speed of scrolling.
+            focus_entity: The entity (player or enemy) to focus on when zooming.
 
+        Returns:
+            bool: True if textures need to be rescaled.
         """
 
         # --- Handle Scrolling Input ---
@@ -70,25 +75,25 @@ class Camera:
         )
 
         if zoom_changed and self.tile_size != old_tile_size:
-            # Use player's position as the focal point for the zoom
+            # Use focus_entity's position as the focal point for the zoom
 
-            player_world_x = (player.x + 0.5) * old_tile_size
+            entity_world_x = (focus_entity.x + 0.5) * old_tile_size
 
-            player_world_y = (player.y + 0.5) * old_tile_size
+            entity_world_y = (focus_entity.y + 0.5) * old_tile_size
 
-            player_screen_x = player_world_x - self.offset_x
+            entity_screen_x = entity_world_x - self.offset_x
 
-            player_screen_y = player_world_y - self.offset_y
+            entity_screen_y = entity_world_y - self.offset_y
 
-            new_player_world_x = (player.x + 0.5) * self.tile_size
+            new_entity_world_x = (focus_entity.x + 0.5) * self.tile_size
 
-            new_player_world_y = (player.y + 0.5) * self.tile_size
+            new_entity_world_y = (focus_entity.y + 0.5) * self.tile_size
 
-            # Adjust offset to keep the player at the same screen position
+            # Adjust offset to keep the entity at the same screen position
 
-            self.offset_x = new_player_world_x - player_screen_x
+            self.offset_x = new_entity_world_x - entity_screen_x
 
-            self.offset_y = new_player_world_y - player_screen_y
+            self.offset_y = new_entity_world_y - entity_screen_y
 
             needs_rescale = True
 
@@ -100,6 +105,24 @@ class Camera:
         self.clamp_and_center()
 
         return needs_rescale
+
+    def center_on_entity(self, entity):
+        """
+        Centers the camera on the given entity.
+
+        Args:
+            entity: The entity (player or enemy) to center on.
+        """
+        # Calculate the world position of the entity's center
+        entity_world_x = (entity.x + 0.5) * self.tile_size
+        entity_world_y = (entity.y + 0.5) * self.tile_size
+
+        # Set offset so the entity is in the center of the screen
+        self.offset_x = entity_world_x - self.screen_width / 2
+        self.offset_y = entity_world_y - self.screen_height / 2
+
+        # Clamp to valid bounds
+        self.clamp_and_center()
 
     def clamp_and_center(self):
         map_width_px = self.map_width * self.tile_size

@@ -3,6 +3,7 @@ import math
 import pygame
 from assets import AssetManager
 from camera import Camera
+from enemy import Enemy
 from game_state import GameState
 from player import Player
 from renderer import MapRenderer
@@ -17,7 +18,8 @@ MAP_HEIGHT = 125
 INITIAL_TILE_SIZE = 32
 ZOOM_SPEED = 1
 SCROLL_SPEED = 10
-MOVEMENT_RANGE = 3  # Player can move 2 tiles in any direction
+MOVEMENT_RANGE = 3  # Player can move 3 tiles in any direction
+SPAWN_DISTANCE = 20  # Distance between player and enemy spawn points
 
 
 class Game:
@@ -40,13 +42,25 @@ class Game:
 
         # Initialize game logic components
         self.game_state = GameState()
-        # Start player in the center of the map
-        self.player = Player(MAP_WIDTH // 2, MAP_HEIGHT // 2)
+
+        # Spawn player and enemy equidistant from center, ~20 tiles apart
+        center_x = MAP_WIDTH // 2
+        center_y = MAP_HEIGHT // 2
+        half_distance = SPAWN_DISTANCE // 2
+
+        # Player spawns to the left of center
+        self.player = Player(center_x - half_distance, center_y)
+        # Enemy spawns to the right of center
+        self.enemy = Enemy(center_x + half_distance, center_y)
+
         self.ui_manager = UIManager(SCREEN_WIDTH, SCREEN_HEIGHT)
 
         self.world = None
         self.hovered_tile = None
         self.animation_timer = 0
+
+        # Track if we need to center camera on turn change
+        self.last_phase = self.game_state.current_phase
 
     def run(self):
         """Starts and runs the main game loop."""
@@ -55,11 +69,18 @@ class Game:
         # Create initial scaled textures and glow surfaces
         self.asset_manager.rescale_textures(self.camera.tile_size)
         self.renderer.create_glow_surfaces(self.camera.tile_size)
+
+        # Set up sprites
         self.player.sprite = self.asset_manager.sprites.get("player")
+        # Enemy uses the same sprite but will invert it
+        self.enemy.set_sprite(self.asset_manager.sprites.get("player"))
 
         print("Generating world...")
         self.world = self.world_generator.generate()
         print("World generation complete. Game starting.")
+
+        # Center camera on player at start (it's player's turn)
+        self.camera.center_on_entity(self.player)
 
         while self.running:
             self.events()
@@ -77,33 +98,81 @@ class Game:
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
                     self.running = False
-                elif event.key == pygame.K_RETURN:  # NEW: End Turn on Return/Enter
-                    self.game_state.end_turn()
+                elif event.key == pygame.K_RETURN:
+                    self._handle_end_turn()
             if event.type == pygame.MOUSEBUTTONDOWN:
                 self.handle_mouse_click(event.pos)
 
+    def _handle_end_turn(self):
+        """Handles the end turn action and camera refocus."""
+        self.game_state.end_turn()
+        self._center_camera_on_active_entity()
+
+    def _center_camera_on_active_entity(self):
+        """Centers the camera on whoever's turn it is."""
+        if self.game_state.is_player_turn():
+            self.camera.center_on_entity(self.player)
+        else:
+            self.camera.center_on_entity(self.enemy)
+
+    def _get_focus_entity(self):
+        """Returns the entity that should be the focus for camera operations."""
+        if self.game_state.is_player_turn():
+            return self.player
+        else:
+            return self.enemy
+
     def handle_mouse_click(self, mouse_pos):
-        """Handles all logic for mouse clicks, including UI and player movement."""
+        """Handles all logic for mouse clicks, including UI and movement."""
         # Check for UI interaction first
         if self.ui_manager.end_turn_button_rect.collidepoint(mouse_pos):
-            self.game_state.end_turn()
+            self._handle_end_turn()
             return
 
-        # If not UI, check for map interaction (player movement)
-        if not self.game_state.player_has_moved:
-            # hovered_tile is already calculated in the update loop
-            if self.hovered_tile:
-                tile_x, tile_y = self.hovered_tile
-                # Use the player's new validation method
-                if self.player.is_valid_move(tile_x, tile_y, MOVEMENT_RANGE):
-                    self.player.move(tile_x, tile_y)
-                    self.game_state.player_has_moved = True
+        # Calculate clicked tile from mouse position
+        tile_x = math.floor(
+            (mouse_pos[0] + self.camera.offset_x) / self.camera.tile_size
+        )
+        tile_y = math.floor(
+            (mouse_pos[1] + self.camera.offset_y) / self.camera.tile_size
+        )
+
+        print(f"Click at tile: ({tile_x}, {tile_y})")
+        print(
+            f"Player turn: {self.game_state.is_player_turn()}, Player moved: {self.game_state.player_has_moved}"
+        )
+        print(f"Player pos: ({self.player.x}, {self.player.y})")
+
+        if self.game_state.is_player_turn() and not self.game_state.player_has_moved:
+            # Player's turn - move player
+            valid = self.player.is_valid_move(tile_x, tile_y, MOVEMENT_RANGE)
+            print(f"Valid move: {valid}")
+            if valid:
+                self.player.move(tile_x, tile_y)
+                self.game_state.player_has_moved = True
+                print("Player moved!")
+
+        elif self.game_state.is_enemy_turn() and not self.game_state.enemy_has_moved:
+            # Enemy's turn - move enemy (pass to play)
+            valid = self.enemy.is_valid_move(tile_x, tile_y, MOVEMENT_RANGE)
+            print(f"Enemy valid move: {valid}")
+            if valid:
+                self.enemy.move(tile_x, tile_y)
+                self.game_state.enemy_has_moved = True
+                print("Enemy moved!")
 
     def update(self):
         """Updates the state of all game components."""
         self.animation_timer += 1
+
+        # Check if phase changed and center camera accordingly
+        if self.game_state.current_phase != self.last_phase:
+            self._center_camera_on_active_entity()
+            self.last_phase = self.game_state.current_phase
+
         keys = pygame.key.get_pressed()
-        needs_rescale = self.camera.update(keys, ZOOM_SPEED, SCROLL_SPEED, self.player)
+        focus_entity = self._get_focus_entity()
+        needs_rescale = self.camera.update(keys, ZOOM_SPEED, SCROLL_SPEED, focus_entity)
         if needs_rescale:
             self.asset_manager.rescale_textures(self.camera.tile_size)
             self.renderer.create_glow_surfaces(self.camera.tile_size)
@@ -123,6 +192,7 @@ class Game:
                 self.camera,
                 self.asset_manager.scaled_textures,
                 self.player,
+                self.enemy,
                 self.ui_manager,
                 self.game_state,
                 self.hovered_tile,
