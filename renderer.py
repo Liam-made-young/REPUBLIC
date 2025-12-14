@@ -1,0 +1,127 @@
+import math
+
+import pygame
+
+# UI Colors
+BLACK = (0, 0, 0)
+PLAYER_GLOW_COLOR = (255, 255, 0)  # Yellow
+HOVER_GLOW_COLOR = (255, 255, 255)  # White
+
+
+class MapRenderer:
+    def __init__(self, screen):
+        self.screen = screen
+        self.player_glow_surf = None
+        self.hover_glow_surf = None
+
+    def create_glow_surfaces(self, tile_size):
+        """Create multi-layered, gradient surfaces for glow effects."""
+        self.player_glow_surf = self._create_gradient_circle(
+            int(tile_size * 1.2), PLAYER_GLOW_COLOR
+        )
+        self.hover_glow_surf = self._create_gradient_circle(
+            int(tile_size * 1.0), HOVER_GLOW_COLOR
+        )
+
+    def _create_gradient_circle(self, radius, color):
+        """Creates a circular surface with a soft, gradient glow."""
+        if radius <= 0:
+            return None
+        surf = pygame.Surface((radius * 2, radius * 2), pygame.SRCALPHA)
+        # Draw several concentric circles with decreasing alpha to create a gradient
+        for i in range(radius, 0, -2):
+            alpha = 255 * (1 - (i / radius)) ** 1.5
+            final_alpha = int(max(0, min(255, alpha * 1.2)))
+            pygame.draw.circle(surf, (*color, final_alpha), (radius, radius), i)
+        return surf
+
+    def draw(
+        self,
+        world,
+        camera,
+        textures,
+        player,
+        ui_manager,
+        game_state,
+        hovered_tile,
+        movement_range,
+        animation_timer,
+    ):
+        """Draws all game elements to the screen."""
+        self.screen.fill(BLACK)
+
+        self._draw_map(world, camera, textures)
+        self._draw_visual_effects(
+            player, camera, hovered_tile, game_state, movement_range, animation_timer
+        )
+        self._draw_player(player, camera)
+
+        # UI is drawn last, on top of everything
+        ui_manager.draw(self.screen, game_state)
+
+        pygame.display.flip()
+
+    def _draw_map(self, world, camera, textures):
+        # Culling logic to only draw visible tiles
+        start_col = max(0, camera.offset_x // camera.tile_size)
+        end_col = min(
+            world.width, (camera.offset_x + camera.screen_width) // camera.tile_size + 2
+        )
+        start_row = max(0, camera.offset_y // camera.tile_size)
+        end_row = min(
+            world.height,
+            (camera.offset_y + camera.screen_height) // camera.tile_size + 2,
+        )
+
+        for y in range(start_row, end_row):
+            for x in range(start_col, end_col):
+                tile_type = world.world_map[y][x]
+                if tile_type in textures:
+                    screen_x = x * camera.tile_size - camera.offset_x
+                    screen_y = y * camera.tile_size - camera.offset_y
+                    self.screen.blit(textures[tile_type], (screen_x, screen_y))
+
+    def _draw_visual_effects(
+        self, player, camera, hovered_tile, game_state, movement_range, animation_timer
+    ):
+        # Draw player glow with a pulsing animation
+        if self.player_glow_surf:
+            # Use a sine wave for a smooth pulse effect
+            pulse = (math.sin(animation_timer * 0.1) + 1) / 2  # Varies between 0 and 1
+            dynamic_alpha = 100 + pulse * 100  # Varies between 100 and 200
+            self.player_glow_surf.set_alpha(dynamic_alpha)
+            self._blit_centered_on_tile(
+                self.player_glow_surf, player.x, player.y, camera
+            )
+
+        # Draw hover glow if the tile is a valid move
+        if hovered_tile and not game_state.player_has_moved and self.hover_glow_surf:
+            htx, hty = hovered_tile
+            if player.is_valid_move(htx, hty, movement_range):
+                self._blit_centered_on_tile(self.hover_glow_surf, htx, hty, camera)
+
+    def _blit_centered_on_tile(self, surface, tile_x, tile_y, camera):
+        """Helper to draw a surface centered on a specific tile."""
+        tile_screen_x = tile_x * camera.tile_size - camera.offset_x
+        tile_screen_y = tile_y * camera.tile_size - camera.offset_y
+
+        surf_rect = surface.get_rect()
+        surf_rect.center = (
+            tile_screen_x + camera.tile_size / 2,
+            tile_screen_y + camera.tile_size / 2,
+        )
+
+        self.screen.blit(surface, surf_rect.topleft)
+
+    def _draw_player(self, player, camera):
+        if not player.sprite:
+            return
+
+        scaled_sprite = pygame.transform.scale(
+            player.sprite, (camera.tile_size, camera.tile_size)
+        )
+
+        screen_x = player.x * camera.tile_size - camera.offset_x
+        screen_y = player.y * camera.tile_size - camera.offset_y
+
+        self.screen.blit(scaled_sprite, (screen_x, screen_y))
