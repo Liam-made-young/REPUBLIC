@@ -1,6 +1,9 @@
 class Player:
     """Represents the player character in the game."""
 
+    MAX_HEALTH = 10
+    ATTACK_DAMAGE = 5
+
     def __init__(self, start_x, start_y):
         """
         Initializes the Player.
@@ -12,6 +15,7 @@ class Player:
         self.x = start_x
         self.y = start_y
         self.sprite = None  # The player's visual sprite, to be loaded separately.
+        self.health = self.MAX_HEALTH
 
     def move(self, new_x, new_y):
         """
@@ -42,3 +46,21 @@ class Player:
         # A move is valid if it's not to the same spot (distance > 0)
         # and is within the allowed range.
         return 0 < max(dist_x, dist_y) <= movement_range
+
+    def take_damage(self, amount):
+        """
+        Reduces the player's health by the given amount.
+
+        Args:
+            amount (int): The amount of damage to take.
+        """
+        self.health = max(0, self.health - amount)
+
+    def is_dead(self):
+        """
+        Checks if the player is dead.
+
+        Returns:
+            bool: True if the player's health is 0 or below.
+        """
+        return self.health <= 0

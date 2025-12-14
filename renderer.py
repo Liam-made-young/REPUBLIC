@@ -7,6 +7,7 @@ BLACK = (0, 0, 0)
 PLAYER_GLOW_COLOR = (255, 255, 0)  # Yellow
 HOVER_GLOW_COLOR = (255, 255, 255)  # White
 ENEMY_GLOW_COLOR = (255, 0, 0)  # Red
+ATTACK_HOVER_GLOW_COLOR = (255, 100, 0)  # Orange for attack hover
 
 
 class MapRenderer:
@@ -15,6 +16,7 @@ class MapRenderer:
         self.player_glow_surf = None
         self.hover_glow_surf = None
         self.enemy_glow_surf = None
+        self.attack_hover_glow_surf = None
 
     def create_glow_surfaces(self, tile_size):
         """Create multi-layered, gradient surfaces for glow effects."""
@@ -26,6 +28,9 @@ class MapRenderer:
         )
         self.enemy_glow_surf = self._create_gradient_circle(
             int(tile_size * 1.2), ENEMY_GLOW_COLOR
+        )
+        self.attack_hover_glow_surf = self._create_gradient_circle(
+            int(tile_size * 1.2), ATTACK_HOVER_GLOW_COLOR
         )
 
     def _create_gradient_circle(self, radius, color):
@@ -66,11 +71,11 @@ class MapRenderer:
             movement_range,
             animation_timer,
         )
-        self._draw_enemy(enemy, camera)
-        self._draw_player(player, camera)
+        self._draw_enemy(enemy, camera, game_state)
+        self._draw_player(player, camera, game_state)
 
         # UI is drawn last, on top of everything
-        ui_manager.draw(self.screen, game_state)
+        ui_manager.draw(self.screen, game_state, player, enemy)
 
         pygame.display.flip()
 
@@ -108,7 +113,7 @@ class MapRenderer:
         pulse = (math.sin(animation_timer * 0.1) + 1) / 2  # Varies between 0 and 1
 
         # Draw player glow with a pulsing animation
-        if self.player_glow_surf:
+        if self.player_glow_surf and not player.is_dead():
             if game_state.is_player_turn():
                 # Brighter glow when it's player's turn
                 dynamic_alpha = 100 + pulse * 100  # Varies between 100 and 200
@@ -121,7 +126,7 @@ class MapRenderer:
             )
 
         # Draw enemy glow with a pulsing animation
-        if self.enemy_glow_surf and enemy:
+        if self.enemy_glow_surf and enemy and not enemy.is_dead():
             if game_state.is_enemy_turn():
                 # Brighter glow when it's enemy's turn
                 dynamic_alpha = 100 + pulse * 100  # Varies between 100 and 200
@@ -131,17 +136,51 @@ class MapRenderer:
             self.enemy_glow_surf.set_alpha(dynamic_alpha)
             self._blit_centered_on_tile(self.enemy_glow_surf, enemy.x, enemy.y, camera)
 
-        # Draw hover glow if the tile is a valid move
-        if hovered_tile and self.hover_glow_surf:
+        # Draw hover glow based on context (move or attack)
+        if hovered_tile and not game_state.game_over:
             htx, hty = hovered_tile
+
             if game_state.is_player_turn() and not game_state.player_has_moved:
-                # Player's turn - show hover for player movement
-                if player.is_valid_move(htx, hty, movement_range):
-                    self._blit_centered_on_tile(self.hover_glow_surf, htx, hty, camera)
+                # Check if hovering over enemy (attack)
+                if enemy and htx == enemy.x and hty == enemy.y and not enemy.is_dead():
+                    # Check if enemy is in range
+                    if player.is_valid_move(htx, hty, movement_range):
+                        # Show attack hover glow on enemy
+                        if self.attack_hover_glow_surf:
+                            attack_pulse = (math.sin(animation_timer * 0.2) + 1) / 2
+                            self.attack_hover_glow_surf.set_alpha(
+                                150 + attack_pulse * 105
+                            )
+                            self._blit_centered_on_tile(
+                                self.attack_hover_glow_surf, htx, hty, camera
+                            )
+                elif self.hover_glow_surf:
+                    # Player's turn - show hover for player movement
+                    if player.is_valid_move(htx, hty, movement_range):
+                        self._blit_centered_on_tile(
+                            self.hover_glow_surf, htx, hty, camera
+                        )
+
             elif game_state.is_enemy_turn() and not game_state.enemy_has_moved:
-                # Enemy's turn - show hover for enemy movement (pass to play)
-                if enemy and enemy.is_valid_move(htx, hty, movement_range):
-                    self._blit_centered_on_tile(self.hover_glow_surf, htx, hty, camera)
+                # Check if hovering over player (attack)
+                if htx == player.x and hty == player.y and not player.is_dead():
+                    # Check if player is in range
+                    if enemy and enemy.is_valid_move(htx, hty, movement_range):
+                        # Show attack hover glow on player
+                        if self.attack_hover_glow_surf:
+                            attack_pulse = (math.sin(animation_timer * 0.2) + 1) / 2
+                            self.attack_hover_glow_surf.set_alpha(
+                                150 + attack_pulse * 105
+                            )
+                            self._blit_centered_on_tile(
+                                self.attack_hover_glow_surf, htx, hty, camera
+                            )
+                elif self.hover_glow_surf and enemy:
+                    # Enemy's turn - show hover for enemy movement (pass to play)
+                    if enemy.is_valid_move(htx, hty, movement_range):
+                        self._blit_centered_on_tile(
+                            self.hover_glow_surf, htx, hty, camera
+                        )
 
     def _blit_centered_on_tile(self, surface, tile_x, tile_y, camera):
         """Helper to draw a surface centered on a specific tile."""
@@ -156,8 +195,8 @@ class MapRenderer:
 
         self.screen.blit(surface, surf_rect.topleft)
 
-    def _draw_player(self, player, camera):
-        if not player.sprite:
+    def _draw_player(self, player, camera, game_state):
+        if not player.sprite or player.is_dead():
             return
 
         scaled_sprite = pygame.transform.scale(
@@ -169,9 +208,9 @@ class MapRenderer:
 
         self.screen.blit(scaled_sprite, (screen_x, screen_y))
 
-    def _draw_enemy(self, enemy, camera):
+    def _draw_enemy(self, enemy, camera, game_state):
         """Draws the enemy with its inverted sprite."""
-        if not enemy:
+        if not enemy or enemy.is_dead():
             return
 
         sprite = enemy.get_display_sprite()

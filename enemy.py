@@ -4,6 +4,9 @@ import pygame
 class Enemy:
     """Represents an enemy character in the game."""
 
+    MAX_HEALTH = 10
+    ATTACK_DAMAGE = 5
+
     def __init__(self, start_x, start_y):
         """
         Initializes the Enemy.
@@ -16,6 +19,7 @@ class Enemy:
         self.y = start_y
         self.sprite = None  # The enemy's visual sprite, to be loaded separately.
         self.inverted_sprite = None  # Cached inverted version of the sprite
+        self.health = self.MAX_HEALTH
 
     def set_sprite(self, sprite):
         """
@@ -93,6 +97,24 @@ class Enemy:
         # A move is valid if it's not to the same spot (distance > 0)
         # and is within the allowed range.
         return 0 < max(dist_x, dist_y) <= movement_range
+
+    def take_damage(self, amount):
+        """
+        Reduces the enemy's health by the given amount.
+
+        Args:
+            amount (int): The amount of damage to take.
+        """
+        self.health = max(0, self.health - amount)
+
+    def is_dead(self):
+        """
+        Checks if the enemy is dead.
+
+        Returns:
+            bool: True if the enemy's health is 0 or below.
+        """
+        return self.health <= 0
 
     def get_display_sprite(self):
         """

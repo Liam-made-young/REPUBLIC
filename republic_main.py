@@ -99,9 +99,11 @@ class Game:
                 if event.key == pygame.K_ESCAPE:
                     self.running = False
                 elif event.key == pygame.K_RETURN:
-                    self._handle_end_turn()
+                    if not self.game_state.game_over:
+                        self._handle_end_turn()
             if event.type == pygame.MOUSEBUTTONDOWN:
-                self.handle_mouse_click(event.pos)
+                if not self.game_state.game_over:
+                    self.handle_mouse_click(event.pos)
 
     def _handle_end_turn(self):
         """Handles the end turn action and camera refocus."""
@@ -122,8 +124,15 @@ class Game:
         else:
             return self.enemy
 
+    def _check_game_over(self):
+        """Checks if the game is over due to death."""
+        if self.enemy.is_dead():
+            self.game_state.set_game_over("player")
+        elif self.player.is_dead():
+            self.game_state.set_game_over("enemy")
+
     def handle_mouse_click(self, mouse_pos):
-        """Handles all logic for mouse clicks, including UI and movement."""
+        """Handles all logic for mouse clicks, including UI, movement, and attacks."""
         # Check for UI interaction first
         if self.ui_manager.end_turn_button_rect.collidepoint(mouse_pos):
             self._handle_end_turn()
@@ -137,29 +146,47 @@ class Game:
             (mouse_pos[1] + self.camera.offset_y) / self.camera.tile_size
         )
 
-        print(f"Click at tile: ({tile_x}, {tile_y})")
-        print(
-            f"Player turn: {self.game_state.is_player_turn()}, Player moved: {self.game_state.player_has_moved}"
-        )
-        print(f"Player pos: ({self.player.x}, {self.player.y})")
-
         if self.game_state.is_player_turn() and not self.game_state.player_has_moved:
-            # Player's turn - move player
-            valid = self.player.is_valid_move(tile_x, tile_y, MOVEMENT_RANGE)
-            print(f"Valid move: {valid}")
-            if valid:
-                self.player.move(tile_x, tile_y)
-                self.game_state.player_has_moved = True
-                print("Player moved!")
+            # Check if clicking on enemy (attack)
+            if (
+                tile_x == self.enemy.x
+                and tile_y == self.enemy.y
+                and not self.enemy.is_dead()
+            ):
+                # Check if enemy is in range
+                if self.player.is_valid_move(tile_x, tile_y, MOVEMENT_RANGE):
+                    # Attack the enemy
+                    self.enemy.take_damage(Player.ATTACK_DAMAGE)
+                    self.game_state.player_has_moved = True
+                    self._check_game_over()
+            else:
+                # Normal movement
+                if self.player.is_valid_move(tile_x, tile_y, MOVEMENT_RANGE):
+                    # Don't move onto enemy position
+                    if not (tile_x == self.enemy.x and tile_y == self.enemy.y):
+                        self.player.move(tile_x, tile_y)
+                        self.game_state.player_has_moved = True
 
         elif self.game_state.is_enemy_turn() and not self.game_state.enemy_has_moved:
-            # Enemy's turn - move enemy (pass to play)
-            valid = self.enemy.is_valid_move(tile_x, tile_y, MOVEMENT_RANGE)
-            print(f"Enemy valid move: {valid}")
-            if valid:
-                self.enemy.move(tile_x, tile_y)
-                self.game_state.enemy_has_moved = True
-                print("Enemy moved!")
+            # Check if clicking on player (attack)
+            if (
+                tile_x == self.player.x
+                and tile_y == self.player.y
+                and not self.player.is_dead()
+            ):
+                # Check if player is in range
+                if self.enemy.is_valid_move(tile_x, tile_y, MOVEMENT_RANGE):
+                    # Attack the player
+                    self.player.take_damage(Enemy.ATTACK_DAMAGE)
+                    self.game_state.enemy_has_moved = True
+                    self._check_game_over()
+            else:
+                # Normal movement
+                if self.enemy.is_valid_move(tile_x, tile_y, MOVEMENT_RANGE):
+                    # Don't move onto player position
+                    if not (tile_x == self.player.x and tile_y == self.player.y):
+                        self.enemy.move(tile_x, tile_y)
+                        self.game_state.enemy_has_moved = True
 
     def update(self):
         """Updates the state of all game components."""
