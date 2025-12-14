@@ -2,56 +2,119 @@ from enum import Enum, auto
 
 
 class TeamSide(Enum):
-    """Represents the two team sides in the game."""
+    """Represents the team sides in the game (supports 2-4 players)."""
 
-    RED = auto()
-    BLUE = auto()
+    PLAYER_1 = auto()
+    PLAYER_2 = auto()
+    PLAYER_3 = auto()
+    PLAYER_4 = auto()
+
+
+# Default color data for backwards compatibility
+DEFAULT_COLORS = {
+    TeamSide.PLAYER_1: {
+        "name": "Red",
+        "color_key": "red",
+        "rgb": (200, 50, 50),
+        "light": (255, 100, 100),
+        "dark": (120, 30, 30),
+    },
+    TeamSide.PLAYER_2: {
+        "name": "Blue",
+        "color_key": "blue",
+        "rgb": (50, 100, 200),
+        "light": (100, 150, 255),
+        "dark": (30, 60, 120),
+    },
+    TeamSide.PLAYER_3: {
+        "name": "Green",
+        "color_key": "green",
+        "rgb": (50, 180, 50),
+        "light": (100, 220, 100),
+        "dark": (30, 100, 30),
+    },
+    TeamSide.PLAYER_4: {
+        "name": "Purple",
+        "color_key": "purple",
+        "rgb": (150, 50, 180),
+        "light": (200, 100, 220),
+        "dark": (90, 30, 110),
+    },
+}
 
 
 class Team:
     """Manages a team's resources and state."""
 
-    def __init__(self, side: TeamSide):
+    def __init__(
+        self, side: TeamSide, player_name=None, color_key=None, color_data=None
+    ):
         """
         Initializes a team.
 
         Args:
-            side: The team side (RED or BLUE)
+            side: The team side (PLAYER_1, PLAYER_2, etc.)
+            player_name: Optional custom player name (e.g., "Samuel")
+            color_key: The color key (e.g., "red", "blue", "green", "purple")
+            color_data: Optional dict with "rgb", "light", "dark" color tuples
         """
         self.side = side
         self.money = 0
         self.characters = []  # List of Character objects
         self.capitals = []  # List of Capital objects
+        self.seers = []  # List of Seer objects
         self.revealed_tiles = set()  # Set of (x, y) tuples for fog of war
+
+        # Set up player name
+        if player_name:
+            self._player_name = player_name
+        else:
+            self._player_name = DEFAULT_COLORS.get(
+                side, DEFAULT_COLORS[TeamSide.PLAYER_1]
+            )["name"]
+
+        # Set up colors
+        if color_key:
+            self._color_key = color_key
+        else:
+            self._color_key = DEFAULT_COLORS.get(
+                side, DEFAULT_COLORS[TeamSide.PLAYER_1]
+            )["color_key"]
+
+        if color_data:
+            self._color = color_data.get("rgb", (200, 50, 50))
+            self._light_color = color_data.get("light", (255, 100, 100))
+            self._dark_color = color_data.get("dark", (120, 30, 30))
+        else:
+            default = DEFAULT_COLORS.get(side, DEFAULT_COLORS[TeamSide.PLAYER_1])
+            self._color = default["rgb"]
+            self._light_color = default["light"]
+            self._dark_color = default["dark"]
 
     @property
     def name(self):
-        """Returns the display name of the team."""
-        return "Red" if self.side == TeamSide.RED else "Blue"
+        """Returns the display name of the team (player name)."""
+        return self._player_name
+
+    @property
+    def color_key(self):
+        """Returns the color key (e.g., 'red', 'blue')."""
+        return self._color_key
 
     @property
     def color(self):
         """Returns the RGB color tuple for the team."""
-        if self.side == TeamSide.RED:
-            return (200, 50, 50)  # Red
-        else:
-            return (50, 100, 200)  # Blue
+        return self._color
 
     @property
     def light_color(self):
         """Returns a lighter version of the team color for glows."""
-        if self.side == TeamSide.RED:
-            return (255, 100, 100)  # Light red
-        else:
-            return (100, 150, 255)  # Light blue
+        return self._light_color
 
     @property
     def dark_color(self):
         """Returns a darker version of the team color for UI elements."""
-        if self.side == TeamSide.RED:
-            return (120, 30, 30)  # Dark red
-        else:
-            return (30, 60, 120)  # Dark blue
+        return self._dark_color
 
     def add_money(self, amount):
         """Adds money to the team's treasury."""
@@ -94,6 +157,15 @@ class Team:
         if capital in self.capitals:
             self.capitals.remove(capital)
 
+    def add_seer(self, seer):
+        """Adds a seer to the team."""
+        self.seers.append(seer)
+
+    def remove_seer(self, seer):
+        """Removes a seer from the team."""
+        if seer in self.seers:
+            self.seers.remove(seer)
+
     def reveal_area(self, center_x, center_y, radius):
         """
         Reveals tiles in a square area around a center point.
@@ -126,3 +198,11 @@ class Team:
     def is_defeated(self):
         """Checks if the team has been defeated (no capitals and no characters)."""
         return not self.has_capitals() and not self.has_living_characters()
+
+    def reset_seers_for_turn(self):
+        """Resets all seers for a new turn."""
+        for seer in self.seers:
+            seer.reset_turn()
+
+    def __repr__(self):
+        return f"Team({self.name}, color={self._color_key}, money={self.money}, chars={len(self.characters)}, capitals={len(self.capitals)}, seers={len(self.seers)})"

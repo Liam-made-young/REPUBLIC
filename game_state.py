@@ -4,20 +4,46 @@ from team import TeamSide
 
 
 class TurnPhase(Enum):
-    """Represents whose turn it currently is."""
+    """Represents whose turn it currently is (supports 2-4 players)."""
 
-    RED_TURN = auto()
-    BLUE_TURN = auto()
+    PLAYER_1_TURN = auto()
+    PLAYER_2_TURN = auto()
+    PLAYER_3_TURN = auto()
+    PLAYER_4_TURN = auto()
+
+
+# Mapping from turn phase to team side
+PHASE_TO_SIDE = {
+    TurnPhase.PLAYER_1_TURN: TeamSide.PLAYER_1,
+    TurnPhase.PLAYER_2_TURN: TeamSide.PLAYER_2,
+    TurnPhase.PLAYER_3_TURN: TeamSide.PLAYER_3,
+    TurnPhase.PLAYER_4_TURN: TeamSide.PLAYER_4,
+}
+
+# Ordered list of turn phases
+TURN_ORDER = [
+    TurnPhase.PLAYER_1_TURN,
+    TurnPhase.PLAYER_2_TURN,
+    TurnPhase.PLAYER_3_TURN,
+    TurnPhase.PLAYER_4_TURN,
+]
 
 
 class GameState:
     """Holds the current state of the game, including teams, turns, and win conditions."""
 
-    def __init__(self):
+    def __init__(self, num_players=2):
+        """
+        Initializes the game state.
+
+        Args:
+            num_players: Number of players (2-4)
+        """
+        self.num_players = max(2, min(4, num_players))
         self.turn_count = 1
-        self.current_phase = TurnPhase.RED_TURN
+        self.current_phase = TurnPhase.PLAYER_1_TURN
         self.game_over = False
-        self.winner = None  # TeamSide.RED or TeamSide.BLUE
+        self.winner = None  # TeamSide of winner
 
         # Track selected character for multi-character control
         self.selected_character = None
@@ -29,33 +55,27 @@ class GameState:
 
     def get_current_team_side(self):
         """Returns the TeamSide of the team whose turn it is."""
-        if self.current_phase == TurnPhase.RED_TURN:
-            return TeamSide.RED
-        else:
-            return TeamSide.BLUE
+        return PHASE_TO_SIDE.get(self.current_phase, TeamSide.PLAYER_1)
 
-    def get_opposing_team_side(self):
-        """Returns the TeamSide of the opposing team."""
-        if self.current_phase == TurnPhase.RED_TURN:
-            return TeamSide.BLUE
-        else:
-            return TeamSide.RED
+    def get_current_player_index(self):
+        """Returns the index (0-based) of the current player."""
+        for i, phase in enumerate(TURN_ORDER):
+            if phase == self.current_phase:
+                return i
+        return 0
 
-    def is_red_turn(self):
-        """Returns True if it's currently the red team's turn."""
-        return self.current_phase == TurnPhase.RED_TURN
+    def is_player_turn(self, player_index):
+        """Returns True if it's the specified player's turn (0-based index)."""
+        if player_index < 0 or player_index >= self.num_players:
+            return False
+        return self.current_phase == TURN_ORDER[player_index]
 
-    def is_blue_turn(self):
-        """Returns True if it's currently the blue team's turn."""
-        return self.current_phase == TurnPhase.BLUE_TURN
-
-    def end_turn(self, red_team, blue_team):
+    def end_turn(self, teams):
         """
-        Advances the turn to the next team.
+        Advances the turn to the next player.
 
         Args:
-            red_team: The red Team object
-            blue_team: The blue Team object
+            teams: List of Team objects
         """
         if self.game_over:
             return
@@ -68,17 +88,22 @@ class GameState:
         self.show_character_menu = False
         self.selected_capital = None
 
-        if self.current_phase == TurnPhase.RED_TURN:
-            # Red's turn ends, blue's turn begins
-            self.current_phase = TurnPhase.BLUE_TURN
-            # Reset blue team's characters and capitals for their turn
-            self._reset_team_for_turn(blue_team)
-        else:
-            # Blue's turn ends, new round begins with red's turn
-            self.current_phase = TurnPhase.RED_TURN
+        # Find current player index
+        current_index = self.get_current_player_index()
+
+        # Move to next player (wrapping around)
+        next_index = (current_index + 1) % self.num_players
+
+        # If we wrapped back to player 0, increment turn count
+        if next_index == 0:
             self.turn_count += 1
-            # Reset red team's characters and capitals for their turn
-            self._reset_team_for_turn(red_team)
+
+        # Set the new phase
+        self.current_phase = TURN_ORDER[next_index]
+
+        # Reset the new current team's characters and capitals
+        if next_index < len(teams):
+            self._reset_team_for_turn(teams[next_index])
 
     def _reset_team_for_turn(self, team):
         """Resets all turn-specific state for a team at the start of their turn."""
@@ -89,6 +114,10 @@ class GameState:
         # Reset all capitals
         for capital in team.capitals:
             capital.reset_turn()
+
+        # Reset all seers
+        if hasattr(team, "seers"):
+            team.reset_seers_for_turn()
 
     def select_character(self, character):
         """
@@ -141,51 +170,76 @@ class GameState:
         Sets the game as over with the specified winner.
 
         Args:
-            winner_side: TeamSide.RED or TeamSide.BLUE
+            winner_side: TeamSide of the winning team
         """
         self.game_over = True
         self.winner = winner_side
 
-    def red_wins(self):
-        """Returns True if the red team won the game."""
-        return self.game_over and self.winner == TeamSide.RED
-
-    def blue_wins(self):
-        """Returns True if the blue team won the game."""
-        return self.game_over and self.winner == TeamSide.BLUE
-
-    def check_victory_conditions(self, red_team, blue_team):
+    def check_victory_conditions(self, teams):
         """
-        Checks if either team has won the game.
-        A team wins when the opposing team has no capitals and no characters.
+        Checks if any team has won the game.
+        A team wins when all other teams have been defeated.
+        A team is defeated when they have no capitals and no characters.
 
         Args:
-            red_team: The red Team object
-            blue_team: The blue Team object
+            teams: List of Team objects
         """
         if self.game_over:
             return
 
-        if red_team.is_defeated():
-            self.set_game_over(TeamSide.BLUE)
-        elif blue_team.is_defeated():
-            self.set_game_over(TeamSide.RED)
+        # Count surviving teams
+        surviving_teams = [team for team in teams if not team.is_defeated()]
 
-    def get_winner_name(self):
-        """Returns the display name of the winner, or None if no winner."""
-        if self.winner == TeamSide.RED:
-            return "Red"
-        elif self.winner == TeamSide.BLUE:
-            return "Blue"
+        # If only one team remains, they win
+        if len(surviving_teams) == 1:
+            self.set_game_over(surviving_teams[0].side)
+        elif len(surviving_teams) == 0:
+            # Edge case: everyone defeated (shouldn't happen normally)
+            # Last team to act "wins"
+            self.game_over = True
+
+    def get_winner_name(self, teams):
+        """
+        Returns the display name of the winner, or None if no winner.
+
+        Args:
+            teams: List of Team objects to look up winner name
+        """
+        if not self.winner:
+            return None
+
+        for team in teams:
+            if team.side == self.winner:
+                return team.name
         return None
 
-    def get_current_phase_name(self):
-        """Returns a display-friendly name for the current phase."""
-        if self.current_phase == TurnPhase.RED_TURN:
-            return "Red Team's Turn"
-        else:
-            return "Blue Team's Turn"
+    def get_current_phase_name(self, teams):
+        """
+        Returns a display-friendly name for the current phase.
+
+        Args:
+            teams: List of Team objects to get team name
+        """
+        current_index = self.get_current_player_index()
+        if current_index < len(teams):
+            return f"{teams[current_index].name}'s Turn"
+        return "Unknown Turn"
+
+    def get_current_team(self, teams):
+        """
+        Returns the Team object for the current player.
+
+        Args:
+            teams: List of Team objects
+
+        Returns:
+            Team: The current team, or None if index out of range
+        """
+        current_index = self.get_current_player_index()
+        if current_index < len(teams):
+            return teams[current_index]
+        return None
 
     def __repr__(self):
-        phase = "RED" if self.is_red_turn() else "BLUE"
-        return f"GameState(turn={self.turn_count}, phase={phase}, game_over={self.game_over})"
+        phase_name = self.current_phase.name if self.current_phase else "UNKNOWN"
+        return f"GameState(turn={self.turn_count}, phase={phase_name}, players={self.num_players}, game_over={self.game_over})"

@@ -9,35 +9,39 @@ class CharacterType:
     SHIELDMAN = "shieldman"
     RUNNER = "runner"
 
-    # Stats: (max_health, damage, movement_range, cost, sprite_file)
+    # Stats: (max_health, damage, movement_range, visibility_range, cost, sprite_prefix)
     STATS = {
         WARRIOR: {
             "max_health": 10,
             "damage": 5,
             "movement_range": 3,
+            "visibility_range": 2,  # 5x5 visibility
             "cost": 2,
-            "sprite_file": "char1.png",
+            "sprite_prefix": "char",
         },
         SWORDSMAN: {
             "max_health": 15,
             "damage": 10,
             "movement_range": 3,
+            "visibility_range": 2,  # 5x5 visibility
             "cost": 5,
-            "sprite_file": "swordsman.png",
+            "sprite_prefix": "sword",
         },
         SHIELDMAN: {
             "max_health": 20,
             "damage": 2,
             "movement_range": 2,
+            "visibility_range": 2,  # 5x5 visibility
             "cost": 3,
-            "sprite_file": "shield.png",
+            "sprite_prefix": "shield",
         },
         RUNNER: {
             "max_health": 5,
-            "damage": 5,
+            "damage": 4,  # One less damage than others
             "movement_range": 10,
+            "visibility_range": 4,  # 9x9 visibility (4 tiles in each direction)
             "cost": 5,
-            "sprite_file": "runner.png",
+            "sprite_prefix": "runner",
         },
     }
 
@@ -88,94 +92,31 @@ class Character:
         self.health = self.max_health
         self.damage = stats["damage"]
         self.movement_range = stats["movement_range"]
-        self.sprite_file = stats["sprite_file"]
+        self.visibility_range = stats.get("visibility_range", 2)  # Default 5x5
+        self.sprite_prefix = stats["sprite_prefix"]
 
-        # Sprite surfaces
-        self.original_sprite = None  # Original loaded sprite
-        self.tinted_sprite = None  # Team-colored version
+        # Sprite surface (pre-colored, no tinting needed)
+        self.sprite = None
         self.has_moved = False  # Track if character moved this turn
 
     def set_sprite(self, sprite):
         """
-        Sets the character's sprite and creates a team-tinted version.
+        Sets the character's sprite.
+        Sprites are now pre-colored based on team color, no tinting needed.
 
         Args:
             sprite: The pygame surface to use as the character's sprite.
         """
-        self.original_sprite = sprite
-        if sprite:
-            self.tinted_sprite = self._create_tinted_sprite(sprite)
-
-    def _create_tinted_sprite(self, sprite):
-        """
-        Creates a hue-shifted version of the sprite based on team color.
-
-        Args:
-            sprite: The original pygame surface.
-
-        Returns:
-            pygame.Surface: A new surface with team-colored tint.
-        """
-        # Create a copy of the sprite
-        tinted = sprite.copy()
-
-        # Get team color for tinting
-        team_color = self.team.color
-
-        # Lock the surface for pixel access
-        tinted.lock()
-
-        width, height = tinted.get_size()
-
-        for x in range(width):
-            for y in range(height):
-                color = tinted.get_at((x, y))
-
-                # Skip fully transparent pixels
-                if color.a == 0:
-                    continue
-
-                # Calculate luminance (grayscale value)
-                luminance = (color.r * 0.299 + color.g * 0.587 + color.b * 0.114) / 255
-
-                # Blend with team color based on luminance
-                # Darker areas get more team color, lighter areas stay lighter
-                blend_factor = 0.6  # How much team color to apply
-
-                new_r = int(
-                    color.r * (1 - blend_factor)
-                    + team_color[0] * blend_factor * luminance
-                    + (255 - team_color[0]) * blend_factor * (1 - luminance) * 0.3
-                )
-                new_g = int(
-                    color.g * (1 - blend_factor)
-                    + team_color[1] * blend_factor * luminance
-                    + (255 - team_color[1]) * blend_factor * (1 - luminance) * 0.3
-                )
-                new_b = int(
-                    color.b * (1 - blend_factor)
-                    + team_color[2] * blend_factor * luminance
-                    + (255 - team_color[2]) * blend_factor * (1 - luminance) * 0.3
-                )
-
-                # Clamp values
-                new_r = max(0, min(255, new_r))
-                new_g = max(0, min(255, new_g))
-                new_b = max(0, min(255, new_b))
-
-                tinted.set_at((x, y), (new_r, new_g, new_b, color.a))
-
-        tinted.unlock()
-        return tinted
+        self.sprite = sprite
 
     def get_display_sprite(self):
         """
-        Returns the tinted sprite for display.
+        Returns the sprite for display.
 
         Returns:
-            pygame.Surface: The team-tinted sprite.
+            pygame.Surface: The character's sprite.
         """
-        return self.tinted_sprite if self.tinted_sprite else self.original_sprite
+        return self.sprite
 
     def move(self, new_x, new_y):
         """
@@ -265,6 +206,14 @@ class Character:
     def get_type_display_name(self):
         """Returns a display-friendly name for the character type."""
         return self.char_type.capitalize()
+
+    def get_team_color(self):
+        """Returns the team's RGB color for glow effects."""
+        return self.team.color
+
+    def get_team_light_color(self):
+        """Returns the team's light color for highlights."""
+        return self.team.light_color
 
     def __repr__(self):
         return f"Character(id={self.id}, type={self.char_type}, team={self.team.name}, pos=({self.x},{self.y}), hp={self.health}/{self.max_health})"

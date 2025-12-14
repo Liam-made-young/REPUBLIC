@@ -6,7 +6,7 @@ class FogOfWar:
 
     # Visibility constants
     CAPITAL_VISIBILITY_RADIUS = 3  # 7x7 area around capitals
-    CHARACTER_VISIBILITY_RADIUS = 2  # 5x5 area around characters
+    DEFAULT_CHARACTER_VISIBILITY_RADIUS = 2  # 5x5 area around characters (default)
 
     def __init__(self, map_width, map_height):
         """
@@ -82,9 +82,21 @@ class FogOfWar:
         for capital in team.capitals:
             team.reveal_area(capital.x, capital.y, self.CAPITAL_VISIBILITY_RADIUS)
 
-        # Reveal around living characters
+        # Reveal around living characters (using each character's visibility_range)
         for character in team.get_living_characters():
-            team.reveal_area(character.x, character.y, self.CHARACTER_VISIBILITY_RADIUS)
+            # Use character's visibility_range if available, otherwise default
+            visibility = getattr(
+                character, "visibility_range", self.DEFAULT_CHARACTER_VISIBILITY_RADIUS
+            )
+            team.reveal_area(character.x, character.y, visibility)
+
+        # Reveal around seers (they have larger visibility)
+        if hasattr(team, "seers"):
+            for seer in team.seers:
+                # Seers have VISIBILITY_RANGE = 6, which gives 12x12 visibility
+                from seer import Seer
+
+                team.reveal_area(seer.x, seer.y, Seer.VISIBILITY_RANGE)
 
     def is_visible_to_team(self, tile_x, tile_y, team):
         """
