@@ -10,9 +10,9 @@ class Seer:
     """
 
     # Seer constants
-    VISIBILITY_RANGE = 6  # 12x12 visibility (6 tiles in each direction)
-    MOVEMENT_RANGE = 5  # Moves up to 5 tiles per action
-    MOVES_PER_TURN = 3  # Number of moves per turn
+    VISIBILITY_RANGE = 11  # 23x23 visibility (11 tiles in each direction, ~1.5x of 7)
+    MOVEMENT_RANGE = 0  # Seers don't move - they're stationary watchtowers
+    MOVES_PER_TURN = 0  # No moves per turn
     COST = 8  # Money cost to spawn a seer
 
     # Class variable to track unique IDs
@@ -57,59 +57,45 @@ class Seer:
 
     def reset_turn(self):
         """Resets the seer for a new turn."""
-        self.moves_remaining = self.MOVES_PER_TURN
-        self.has_acted_this_turn = False
+        # Seers are stationary - they don't move
+        self.moves_remaining = 0
+        self.has_acted_this_turn = True  # Already "acted" by providing visibility
 
     def can_act(self):
-        """Returns True if the seer can still move this turn."""
-        return self.moves_remaining > 0 and not self.has_acted_this_turn
+        """Returns True if the seer can still move this turn. Seers are stationary."""
+        return False  # Seers don't move
 
     def perform_auto_move(
-        self, world, team, all_characters, all_capitals, map_width, map_height
+        self,
+        world,
+        team,
+        all_characters,
+        all_capitals,
+        all_seers,
+        all_hospitals,
+        map_width,
+        map_height,
     ):
         """
-        Performs automatic movement towards fog of war.
-
-        Args:
-            world: The World object with the map.
-            team: The team this seer belongs to (for fog of war info).
-            all_characters: List of all characters to avoid.
-            all_capitals: List of all capitals to avoid.
-            map_width: Width of the map.
-            map_height: Height of the map.
+        Seers are stationary watchtowers - they don't move.
+        Their value comes from their large 15x15 visibility range.
 
         Returns:
-            bool: True if a move was made, False otherwise.
+            bool: Always False - seers don't move.
         """
-        if self.moves_remaining <= 0:
-            return False
-
-        # Find the best move towards fog of war
-        best_move = self._find_best_fog_move(
-            world, team, all_characters, all_capitals, map_width, map_height
-        )
-
-        if best_move:
-            self.x, self.y = best_move
-            self.moves_remaining -= 1
-            return True
-
-        # If no fog move found, move randomly to a valid tile
-        random_move = self._find_random_move(
-            world, all_characters, all_capitals, map_width, map_height
-        )
-
-        if random_move:
-            self.x, self.y = random_move
-            self.moves_remaining -= 1
-            return True
-
-        # No valid moves
-        self.moves_remaining = 0
+        # Seers are stationary - they provide visibility but don't move
         return False
 
     def _find_best_fog_move(
-        self, world, team, all_characters, all_capitals, map_width, map_height
+        self,
+        world,
+        team,
+        all_characters,
+        all_capitals,
+        all_seers,
+        all_hospitals,
+        map_width,
+        map_height,
     ):
         """
         Finds the best move that leads towards unexplored fog.
@@ -118,7 +104,13 @@ class Seer:
             tuple or None: (x, y) of best move, or None if no good move found.
         """
         valid_moves = self._get_valid_moves(
-            world, all_characters, all_capitals, map_width, map_height
+            world,
+            all_characters,
+            all_capitals,
+            all_seers,
+            all_hospitals,
+            map_width,
+            map_height,
         )
 
         if not valid_moves:
@@ -146,7 +138,14 @@ class Seer:
         return None
 
     def _find_random_move(
-        self, world, all_characters, all_capitals, map_width, map_height
+        self,
+        world,
+        all_characters,
+        all_capitals,
+        all_seers,
+        all_hospitals,
+        map_width,
+        map_height,
     ):
         """
         Finds a random valid move.
@@ -155,7 +154,13 @@ class Seer:
             tuple or None: (x, y) of a random valid move, or None if none available.
         """
         valid_moves = self._get_valid_moves(
-            world, all_characters, all_capitals, map_width, map_height
+            world,
+            all_characters,
+            all_capitals,
+            all_seers,
+            all_hospitals,
+            map_width,
+            map_height,
         )
 
         if valid_moves:
@@ -164,7 +169,14 @@ class Seer:
         return None
 
     def _get_valid_moves(
-        self, world, all_characters, all_capitals, map_width, map_height
+        self,
+        world,
+        all_characters,
+        all_capitals,
+        all_seers,
+        all_hospitals,
+        map_width,
+        map_height,
     ):
         """
         Gets all valid moves within movement range.
@@ -192,6 +204,8 @@ class Seer:
                     world,
                     all_characters,
                     all_capitals,
+                    all_seers,
+                    all_hospitals,
                     map_width,
                     map_height,
                 ):
@@ -200,7 +214,16 @@ class Seer:
         return valid_moves
 
     def _is_valid_position(
-        self, x, y, world, all_characters, all_capitals, map_width, map_height
+        self,
+        x,
+        y,
+        world,
+        all_characters,
+        all_capitals,
+        all_seers,
+        all_hospitals,
+        map_width,
+        map_height,
     ):
         """
         Checks if a position is valid for the seer to move to.
@@ -229,11 +252,15 @@ class Seer:
             if capital.x == x and capital.y == y:
                 return False
 
-        # Check for other seers collision (seers are in team.seers)
-        if hasattr(self.team, "seers"):
-            for seer in self.team.seers:
-                if seer.id != self.id and seer.x == x and seer.y == y:
-                    return False
+        # Check for other seers collision
+        for seer in all_seers:
+            if seer.id != self.id and seer.x == x and seer.y == y:
+                return False
+
+        # Check for hospital collision
+        for hospital in all_hospitals:
+            if hospital.x == x and hospital.y == y:
+                return False
 
         return True
 

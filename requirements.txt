@@ -1,2 +1,5 @@
 pygame-ce>=2.5.0
 noise>=1.2.2
+pygbag>=0.9.0
+pyinstaller>=6.0.0
+websockets>=12.0

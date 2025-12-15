@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>REPUBLIC - Turn-Based Strategy Game</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            font-family: 'Cinzel', 'Times New Roman', serif;
+            color: #d4af37;
+        }
+
+        h1 {
+            font-size: 3rem;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+            margin-bottom: 10px;
+            letter-spacing: 0.3em;
+        }
+
+        .subtitle {
+            font-size: 1rem;
+            color: #c9b896;
+            margin-bottom: 30px;
+            letter-spacing: 0.1em;
+        }
+
+        #canvas-container {
+            position: relative;
+            border: 4px solid #d4af37;
+            border-radius: 8px;
+            box-shadow: 0 0 30px rgba(212, 175, 55, 0.3);
+            overflow: hidden;
+        }
+
+        #canvas {
+            display: block;
+            background: #000;
+        }
+
+        .loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+        }
+
+        .loading-spinner {
+            width: 50px;
+            height: 50px;
+            border: 4px solid #333;
+            border-top-color: #d4af37;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .loading-text {
+            font-size: 1.2rem;
+            color: #c9b896;
+        }
+
+        .controls {
+            margin-top: 20px;
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        .control-btn {
+            background: linear-gradient(180deg, #3d3d3d 0%, #2a2a2a 100%);
+            border: 2px solid #d4af37;
+            color: #d4af37;
+            padding: 10px 20px;
+            font-family: inherit;
+            font-size: 0.9rem;
+            cursor: pointer;
+            border-radius: 4px;
+            transition: all 0.3s ease;
+            letter-spacing: 0.1em;
+        }
+
+        .control-btn:hover {
+            background: linear-gradient(180deg, #4d4d4d 0%, #3a3a3a 100%);
+            box-shadow: 0 0 15px rgba(212, 175, 55, 0.4);
+        }
+
+        .instructions {
+            margin-top: 30px;
+            max-width: 800px;
+            padding: 20px;
+            background: rgba(0, 0, 0, 0.4);
+            border: 1px solid #444;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .instructions h2 {
+            font-size: 1.3rem;
+            margin-bottom: 15px;
+            color: #d4af37;
+        }
+
+        .instructions p {
+            color: #c9b896;
+            line-height: 1.6;
+            font-size: 0.9rem;
+        }
+
+        .key {
+            display: inline-block;
+            background: #333;
+            border: 1px solid #555;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-family: monospace;
+            color: #fff;
+            margin: 0 3px;
+        }
+
+        footer {
+            margin-top: 30px;
+            color: #666;
+            font-size: 0.8rem;
+        }
+
+        /* Hide canvas until loaded */
+        #canvas.hidden {
+            visibility: hidden;
+        }
+    </style>
+    <!-- Pygbag async loader -->
+    <script src="https://pygame-web.github.io/archives/0.9/pythons.js" type="module" id="site" data-src="." data-cdn="https://pygame-web.github.io/archives/0.9/" async></script>
+</head>
+<body>
+    <h1>REPUBLIC</h1>
+    <p class="subtitle">A Turn-Based Strategy Game</p>
+
+    <div id="canvas-container">
+        <div class="loading" id="loading">
+            <div class="loading-spinner"></div>
+            <p class="loading-text">Loading game...</p>
+            <p class="loading-text" id="loading-status" style="font-size: 0.8rem; margin-top: 10px;"></p>
+        </div>
+        <canvas id="canvas" class="hidden" width="1200" height="800"></canvas>
+    </div>
+
+    <div class="controls">
+        <button class="control-btn" onclick="toggleFullscreen()">⛶ Fullscreen (F11)</button>
+        <button class="control-btn" onclick="restartGame()">↺ Restart</button>
+    </div>
+
+    <div class="instructions">
+        <h2>How to Play</h2>
+        <p>
+            <strong>Goal:</strong> Defeat all enemy teams by destroying their capitals and units.<br><br>
+            <strong>Controls:</strong><br>
+            <span class="key">Left Click</span> Select units, move, attack, interact with UI<br>
+            <span class="key">Right Click</span> Cancel selection / placement mode<br>
+            <span class="key">ESC</span> Open menu / Cancel<br>
+            <span class="key">Enter</span> End turn<br>
+            <span class="key">F11</span> Toggle fullscreen<br><br>
+            <strong>Tips:</strong> Click on your capital to spawn units. Use the Create menu to build new capitals, hospitals, or spawn seers.
+        </p>
+    </div>
+
+    <footer>
+        Built with Python & Pygame | Press F11 for fullscreen
+    </footer>
+
+    <script>
+        // Handle game loading status
+        window.addEventListener('load', function() {
+            // Pygbag will handle the actual loading
+            const loadingStatus = document.getElementById('loading-status');
+            let dots = 0;
+            const interval = setInterval(() => {
+                dots = (dots + 1) % 4;
+                loadingStatus.textContent = 'Initializing Python runtime' + '.'.repeat(dots);
+            }, 500);
+
+            // When pygame is ready, hide loading and show canvas
+            const checkReady = setInterval(() => {
+                const canvas = document.getElementById('canvas');
+                if (canvas && canvas.width > 0 && !canvas.classList.contains('hidden')) {
+                    clearInterval(interval);
+                    clearInterval(checkReady);
+                    document.getElementById('loading').style.display = 'none';
+                }
+            }, 100);
+
+            // Timeout after 60 seconds
+            setTimeout(() => {
+                clearInterval(interval);
+                loadingStatus.textContent = 'Loading taking longer than expected. Please refresh if stuck.';
+            }, 60000);
+        });
+
+        function toggleFullscreen() {
+            const container = document.getElementById('canvas-container');
+            if (!document.fullscreenElement) {
+                container.requestFullscreen().catch(err => {
+                    console.log('Fullscreen error:', err);
+                });
+            } else {
+                document.exitFullscreen();
+            }
+        }
+
+        function restartGame() {
+            // Reload the page to restart
+            window.location.reload();
+        }
+
+        // Keyboard shortcut for fullscreen
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'F11') {
+                e.preventDefault();
+                toggleFullscreen();
+            }
+        });
+
+        // Prevent right-click context menu on canvas
+        document.getElementById('canvas').addEventListener('contextmenu', function(e) {
+            e.preventDefault();
+        });
+    </script>
+</body>
+</html>

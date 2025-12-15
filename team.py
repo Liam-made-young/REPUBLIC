@@ -63,6 +63,8 @@ class Team:
         self.characters = []  # List of Character objects
         self.capitals = []  # List of Capital objects
         self.seers = []  # List of Seer objects
+        self.hospitals = []  # List of Hospital objects
+        self.mines = []  # List of Mine objects
         self.revealed_tiles = set()  # Set of (x, y) tuples for fog of war
 
         # Set up player name
@@ -166,6 +168,24 @@ class Team:
         if seer in self.seers:
             self.seers.remove(seer)
 
+    def add_hospital(self, hospital):
+        """Adds a hospital to the team."""
+        self.hospitals.append(hospital)
+
+    def remove_hospital(self, hospital):
+        """Removes a hospital from the team."""
+        if hospital in self.hospitals:
+            self.hospitals.remove(hospital)
+
+    def add_mine(self, mine):
+        """Adds a mine to the team."""
+        self.mines.append(mine)
+
+    def remove_mine(self, mine):
+        """Removes a mine from the team."""
+        if mine in self.mines:
+            self.mines.remove(mine)
+
     def reveal_area(self, center_x, center_y, radius):
         """
         Reveals tiles in a square area around a center point.
@@ -204,5 +224,27 @@ class Team:
         for seer in self.seers:
             seer.reset_turn()
 
+    def reset_hospitals_for_turn(self):
+        """Resets all hospitals for a new turn."""
+        for hospital in self.hospitals:
+            hospital.reset_turn()
+
+    def reset_mines_for_turn(self):
+        """Resets all mines for a new turn."""
+        for mine in self.mines:
+            mine.reset_turn()
+
+    def generate_mine_income(self):
+        """
+        Generates income from all mines.
+
+        Returns:
+            int: Total gold generated from mines.
+        """
+        total = 0
+        for mine in self.mines:
+            total += mine.generate_income()
+        return total
+
     def __repr__(self):
-        return f"Team({self.name}, color={self._color_key}, money={self.money}, chars={len(self.characters)}, capitals={len(self.capitals)}, seers={len(self.seers)})"
+        return f"Team({self.name}, color={self._color_key}, money={self.money}, chars={len(self.characters)}, capitals={len(self.capitals)}, seers={len(self.seers)}, hospitals={len(self.hospitals)}, mines={len(self.mines)})"

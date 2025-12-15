@@ -19,12 +19,18 @@ class MapRenderer:
 
     def __init__(self, screen):
         self.screen = screen
+        self.screen_width = screen.get_width()
+        self.screen_height = screen.get_height()
 
         # Glow surfaces - now cached by color
         self.glow_cache = {}  # {(r, g, b, size): surface}
         self.hover_glow_surf = None
         self.attack_hover_glow_surf = None
-        self.money_glow_surf = None
+        # Glow surfaces for pickups
+        self.chicken_glow_surf = None
+        self.black_chicken_glow_surf = None
+        self.gold_glow_surf = None
+        self.shiny_gold_glow_surf = None
 
         # Capital font
         self.capital_font = None
@@ -32,8 +38,11 @@ class MapRenderer:
         # Name label font
         self.name_font = None
 
-        # Money sprite
-        self.money_sprite = None
+        # Pickup sprites
+        self.chicken_sprite = None
+        self.black_chicken_sprite = None
+        self.gold_sprite = None
+        self.shiny_gold_sprite = None
 
         # Fog tile
         self.fog_tile = None
@@ -99,13 +108,48 @@ class MapRenderer:
 
         return surf
 
-    def set_money_sprite(self, money_sprite):
-        """Sets the money sprite for rendering."""
-        self.money_sprite = money_sprite
+    def set_chicken_sprite(self, sprite):
+        """Sets the chicken sprite for rendering."""
+        self.chicken_sprite = sprite
+
+    def set_black_chicken_sprite(self, sprite):
+        """Sets the black chicken sprite for rendering."""
+        self.black_chicken_sprite = sprite
+
+    def set_gold_sprite(self, sprite):
+        """Sets the gold sprite for rendering."""
+        self.gold_sprite = sprite
+
+    def set_shiny_gold_sprite(self, sprite):
+        """Sets the shiny gold sprite for rendering."""
+        self.shiny_gold_sprite = sprite
+
+    def set_pickup_glows(self, tile_size):
+        """Creates glow surfaces for all pickup types."""
+        from money import Money
+
+        self.chicken_glow_surf = Money.create_glow_surface(
+            tile_size, is_rare=False, is_chicken=True
+        )
+        self.black_chicken_glow_surf = Money.create_glow_surface(
+            tile_size, is_rare=True, is_chicken=True
+        )
+        self.gold_glow_surf = Money.create_glow_surface(
+            tile_size, is_rare=False, is_chicken=False
+        )
+        self.shiny_gold_glow_surf = Money.create_glow_surface(
+            tile_size, is_rare=True, is_chicken=False
+        )
 
     def set_fog_tile(self, fog_tile):
         """Sets the fog of war tile for rendering."""
         self.fog_tile = fog_tile
+
+    def update_screen(self, screen):
+        """Updates the screen reference and dimensions."""
+        self.screen = screen
+        self.screen_width = screen.get_width()
+        self.screen_height = screen.get_height()
 
     def draw(
         self,
@@ -136,6 +180,12 @@ class MapRenderer:
         # Draw capitals
         self._draw_capitals(teams, camera, current_team)
 
+        # Draw hospitals
+        self._draw_hospitals(teams, camera, current_team)
+
+        # Draw mines
+        self._draw_mines(teams, camera, current_team)
+
         # Draw seer effects and seers
         self._draw_seer_effects(teams, camera, animation_timer, current_team)
         self._draw_seers(teams, camera, current_team)
@@ -154,50 +204,68 @@ class MapRenderer:
         # UI is drawn last, on top of everything
         ui_manager.draw(self.screen, game_state, teams)
 
-        pygame.display.flip()
+        # NOTE: pygame.display.flip() is called by republic_main.py, not here
 
     def _draw_map(self, world, camera, textures, current_team, fog_of_war):
         """Draws the game map with fog of war."""
-        # Culling logic to only draw visible tiles
-        start_col = max(0, camera.offset_x // camera.tile_size)
-        end_col = min(
-            world.width, (camera.offset_x + camera.screen_width) // camera.tile_size + 2
-        )
-        start_row = max(0, camera.offset_y // camera.tile_size)
-        end_row = min(
-            world.height,
-            (camera.offset_y + camera.screen_height) // camera.tile_size + 2,
-        )
+        # Use renderer's screen dimensions for proper full-screen support
+        screen_w = self.screen_width
+        screen_h = self.screen_height
+        tile_size = camera.tile_size
 
-        for y in range(start_row, end_row):
-            for x in range(start_col, end_col):
-                screen_x = x * camera.tile_size - camera.offset_x
-                screen_y = y * camera.tile_size - camera.offset_y
+        # Calculate visible tile range including areas outside map for background fill
+        # We need to draw tiles that might be partially visible
+        vis_start_col = int(camera.offset_x // tile_size) - 1
+        vis_end_col = int((camera.offset_x + screen_w) // tile_size) + 2
+        vis_start_row = int(camera.offset_y // tile_size) - 1
+        vis_end_row = int((camera.offset_y + screen_h) // tile_size) + 2
 
-                # Check if tile is revealed
-                if current_team.is_tile_revealed(x, y):
-                    # Draw normal tile
-                    tile_type = world.world_map[y][x]
-                    if tile_type in textures:
-                        self.screen.blit(textures[tile_type], (screen_x, screen_y))
-                else:
-                    # Draw fog tile
-                    if self.fog_tile:
-                        self.screen.blit(self.fog_tile, (screen_x, screen_y))
+        # Draw all visible positions (including outside map bounds)
+        for y in range(vis_start_row, vis_end_row):
+            for x in range(vis_start_col, vis_end_col):
+                screen_x = x * tile_size - camera.offset_x
+                screen_y = y * tile_size - camera.offset_y
+
+                # Skip if completely off screen
+                if screen_x + tile_size < 0 or screen_x > screen_w:
+                    continue
+                if screen_y + tile_size < 0 or screen_y > screen_h:
+                    continue
+
+                # Check if this position is within the map bounds
+                if 0 <= x < world.width and 0 <= y < world.height:
+                    # Check if tile is revealed
+                    if current_team.is_tile_revealed(x, y):
+                        # Draw normal tile
+                        tile_type = world.world_map[y][x]
+                        if tile_type in textures:
+                            self.screen.blit(textures[tile_type], (screen_x, screen_y))
                     else:
-                        # Fallback: draw dark gray
-                        pygame.draw.rect(
-                            self.screen,
-                            (40, 40, 45),
-                            (screen_x, screen_y, camera.tile_size, camera.tile_size),
-                        )
+                        # Draw fog tile
+                        if self.fog_tile:
+                            self.screen.blit(self.fog_tile, (screen_x, screen_y))
+                        else:
+                            # Fallback: draw dark gray fog
+                            pygame.draw.rect(
+                                self.screen,
+                                (40, 40, 45),
+                                (screen_x, screen_y, tile_size, tile_size),
+                            )
+                else:
+                    # Outside map bounds - draw dark background/void
+                    pygame.draw.rect(
+                        self.screen,
+                        (20, 18, 15),  # Dark brown-black void color
+                        (screen_x, screen_y, tile_size, tile_size),
+                    )
 
     def _draw_money(self, money_pickups, camera, current_team, animation_timer):
-        """Draws money pickups with glow effect."""
-        if not self.money_sprite:
-            return
-
+        """Draws money pickups (chickens and gold) with glow effect."""
         pulse = (math.sin(animation_timer * 0.15) + 1) / 2
+        # Faster pulse for rare variants
+        rare_pulse = (math.sin(animation_timer * 0.25) + 1) / 2
+
+        from money import MoneyType
 
         for money in money_pickups:
             if money.collected:
@@ -210,19 +278,40 @@ class MapRenderer:
             screen_x = money.x * camera.tile_size - camera.offset_x
             screen_y = money.y * camera.tile_size - camera.offset_y
 
-            # Draw glow
-            if self.money_glow_surf:
-                glow_alpha = int(100 + pulse * 100)
-                self.money_glow_surf.set_alpha(glow_alpha)
-                self._blit_centered_on_tile(
-                    self.money_glow_surf, money.x, money.y, camera
-                )
+            is_rare = money.is_rare()
+            is_chicken = money.is_chicken()
 
-            # Draw money sprite
-            scaled_sprite = pygame.transform.scale(
-                self.money_sprite, (camera.tile_size, camera.tile_size)
-            )
-            self.screen.blit(scaled_sprite, (screen_x, screen_y))
+            # Select appropriate glow and sprite based on type
+            if money.money_type == MoneyType.CHICKEN:
+                glow_surf = self.chicken_glow_surf
+                sprite = self.chicken_sprite
+            elif money.money_type == MoneyType.BLACK_CHICKEN:
+                glow_surf = self.black_chicken_glow_surf
+                sprite = self.black_chicken_sprite
+            elif money.money_type == MoneyType.GOLD:
+                glow_surf = self.gold_glow_surf
+                sprite = self.gold_sprite
+            elif money.money_type == MoneyType.SHINY_GOLD:
+                glow_surf = self.shiny_gold_glow_surf
+                sprite = self.shiny_gold_sprite
+            else:
+                continue
+
+            # Draw glow (brighter for rare)
+            if glow_surf:
+                if is_rare:
+                    glow_alpha = int(150 + rare_pulse * 105)
+                else:
+                    glow_alpha = int(100 + pulse * 100)
+                glow_surf.set_alpha(glow_alpha)
+                self._blit_centered_on_tile(glow_surf, money.x, money.y, camera)
+
+            # Draw sprite
+            if sprite:
+                scaled_sprite = pygame.transform.scale(
+                    sprite, (camera.tile_size, camera.tile_size)
+                )
+                self.screen.blit(scaled_sprite, (screen_x, screen_y))
 
     def _draw_capital_glows(self, teams, camera, current_team, animation_timer):
         """Draws glow effects around capitals."""
@@ -370,6 +459,44 @@ class MapRenderer:
                             self.hover_glow_surf, htx, hty, camera
                         )
 
+    def _draw_hospitals(self, teams, camera, current_team):
+        """Draws hospital buildings."""
+        for team in teams:
+            if not hasattr(team, "hospitals"):
+                continue
+
+            for hospital in team.hospitals:
+                # Only draw if visible
+                if not current_team.is_tile_revealed(hospital.x, hospital.y):
+                    continue
+
+                screen_x = hospital.x * camera.tile_size - camera.offset_x
+                screen_y = hospital.y * camera.tile_size - camera.offset_y
+
+                # Use hospital's draw method
+                hospital.draw_placeholder(
+                    self.screen, screen_x, screen_y, camera.tile_size, self.capital_font
+                )
+
+    def _draw_mines(self, teams, camera, current_team):
+        """Draws mine buildings."""
+        for team in teams:
+            if not hasattr(team, "mines"):
+                continue
+
+            for mine in team.mines:
+                # Only draw if visible
+                if not current_team.is_tile_revealed(mine.x, mine.y):
+                    continue
+
+                screen_x = mine.x * camera.tile_size - camera.offset_x
+                screen_y = mine.y * camera.tile_size - camera.offset_y
+
+                # Use mine's draw method
+                mine.draw_placeholder(
+                    self.screen, screen_x, screen_y, camera.tile_size, self.capital_font
+                )
+
     def _draw_seer_effects(self, teams, camera, animation_timer, current_team):
         """Draws glow effects for seers."""
         pulse = (
@@ -477,17 +604,16 @@ class MapRenderer:
                 )
                 self.screen.blit(scaled_sprite, (screen_x, screen_y))
 
-                # Draw player name above character
+                # Draw health bar above character, then name above that
+                self._draw_character_health_bar(
+                    char, screen_x, screen_y, camera.tile_size
+                )
+
+                # Draw player name above the health bar
                 self._draw_character_name(char, screen_x, screen_y, camera.tile_size)
 
-                # Draw health bar above character if damaged
-                if char.health < char.max_health:
-                    self._draw_character_health_bar(
-                        char, screen_x, screen_y, camera.tile_size
-                    )
-
     def _draw_character_name(self, char, screen_x, screen_y, tile_size):
-        """Draws the player's name above the character sprite."""
+        """Draws the player's name above the health bar."""
         if not self.name_font:
             return
 
@@ -501,9 +627,9 @@ class MapRenderer:
         # Create shadow for readability
         shadow_surf = self.name_font.render(name, True, (0, 0, 0))
 
-        # Position above the sprite
+        # Position above the health bar (health bar is at screen_y - 12, height 8)
         name_rect = name_surf.get_rect(
-            centerx=screen_x + tile_size // 2, bottom=screen_y - 2
+            centerx=screen_x + tile_size // 2, bottom=screen_y - 22
         )
 
         # Draw shadow slightly offset
@@ -516,32 +642,55 @@ class MapRenderer:
         self.screen.blit(name_surf, name_rect)
 
     def _draw_character_health_bar(self, char, screen_x, screen_y, tile_size):
-        """Draws a small health bar above a character (below the name)."""
-        bar_width = tile_size - 4
-        bar_height = 4
-        bar_x = screen_x + 2
-        bar_y = screen_y - 6
+        """Draws a prominent health bar above a character."""
+        bar_width = tile_size + 4  # Slightly wider than tile
+        bar_height = 6  # Good visibility
+        bar_x = screen_x - 2  # Center over sprite
+        bar_y = screen_y - 10  # Above sprite
+
+        # Draw shadow/outline for visibility
+        shadow_rect = (bar_x + 1, bar_y + 1, bar_width, bar_height)
+        pygame.draw.rect(self.screen, (0, 0, 0), shadow_rect, border_radius=2)
 
         # Background
-        pygame.draw.rect(
-            self.screen, (40, 35, 30), (bar_x, bar_y, bar_width, bar_height)
-        )
+        bg_rect = (bar_x, bar_y, bar_width, bar_height)
+        pygame.draw.rect(self.screen, (30, 25, 20), bg_rect, border_radius=2)
 
         # Health fill
         health_ratio = char.health / char.max_health
-        fill_width = int(bar_width * health_ratio)
+        fill_width = int((bar_width - 2) * health_ratio)
 
         if fill_width > 0:
-            # Color based on team
-            fill_color = char.get_team_color()
+            # Color based on health level - goes from team color to red as health drops
+            team_color = char.get_team_color()
+            if health_ratio > 0.5:
+                fill_color = team_color
+            elif health_ratio > 0.25:
+                # Yellow-ish warning
+                fill_color = (200, 180, 50)
+            else:
+                # Red critical
+                fill_color = (200, 50, 50)
+
+            fill_rect = (bar_x + 1, bar_y + 1, fill_width, bar_height - 2)
+            pygame.draw.rect(self.screen, fill_color, fill_rect, border_radius=1)
+
+            # Add highlight on top half for 3D effect
+            highlight_color = (
+                min(255, fill_color[0] + 40),
+                min(255, fill_color[1] + 40),
+                min(255, fill_color[2] + 40),
+            )
+            highlight_rect = (bar_x + 1, bar_y + 1, fill_width, (bar_height - 2) // 2)
             pygame.draw.rect(
-                self.screen, fill_color, (bar_x, bar_y, fill_width, bar_height)
+                self.screen, highlight_color, highlight_rect, border_radius=1
             )
 
         # Border
-        pygame.draw.rect(
-            self.screen, (80, 70, 55), (bar_x, bar_y, bar_width, bar_height), 1
-        )
+        pygame.draw.rect(self.screen, (100, 90, 70), bg_rect, 2, border_radius=2)
+
+        # Don't draw HP text on bar - it's too small and cluttered
+        # The bar visual is enough
 
     def _blit_centered_on_tile(self, surface, tile_x, tile_y, camera):
         """Helper to draw a surface centered on a specific tile."""

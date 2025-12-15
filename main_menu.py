@@ -1,3 +1,8 @@
+import asyncio
+import socket
+import subprocess
+import sys
+import threading
 import time
 
 import pygame
@@ -170,6 +175,17 @@ class MainMenu:
         self.active_input_player = None  # Which player's name is being edited
         self.input_text = ""
 
+        # LAN Server state
+        self.lan_server_running = False
+        self.lan_server_process = None
+        self.lan_server_thread = None
+        self.local_ip = self._get_local_ip()
+        self.lan_server_button_rect = None
+        
+        # Audio state
+        self.music_enabled = True
+        self.music_button_rect = None
+
         # Initialize fonts
         if not pygame.font.get_init():
             pygame.font.init()
@@ -225,6 +241,96 @@ class MainMenu:
         # Name input rects
         self.name_input_rects = {}  # {player_index: rect}
 
+    def _get_local_ip(self):
+        """Gets the local IP address for LAN play."""
+        try:
+            # Create a socket to determine local IP
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            ip = s.getsockname()[0]
+            s.close()
+            return ip
+        except Exception:
+            return "127.0.0.1"
+
+    def toggle_lan_server(self):
+        """Toggles the LAN relay server on/off."""
+        if self.lan_server_running:
+            self._stop_lan_server()
+        else:
+            self._start_lan_server()
+
+    def _start_lan_server(self):
+        """Starts the LAN relay server in a background process."""
+        try:
+            # Start relay_server.py as a subprocess
+            import os
+
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            relay_path = os.path.join(script_dir, "relay_server.py")
+
+            if not os.path.exists(relay_path):
+                print("relay_server.py not found!")
+                return
+
+            # Start the server process
+            # Use CREATE_NO_WINDOW on Windows to hide console
+            kwargs = {
+                "stdout": subprocess.PIPE,
+                "stderr": subprocess.PIPE,
+            }
+            if sys.platform == "win32":
+                kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+
+            self.lan_server_process = subprocess.Popen(
+                [sys.executable, relay_path],
+                **kwargs,
+            )
+
+            self.lan_server_running = True
+            print(f"LAN Server started on ws://{self.local_ip}:8765")
+
+        except Exception as e:
+            print(f"Failed to start LAN server: {e}")
+            self.lan_server_running = False
+
+    def _stop_lan_server(self):
+        """Stops the LAN relay server."""
+        if self.lan_server_process:
+            try:
+                self.lan_server_process.terminate()
+                self.lan_server_process.wait(timeout=2)
+            except Exception as e:
+                print(f"Error stopping server: {e}")
+                try:
+                    self.lan_server_process.kill()
+                except:
+                    pass
+            self.lan_server_process = None
+
+        self.lan_server_running = False
+        print("LAN Server stopped")
+
+    def cleanup(self):
+        """Cleanup method to stop server when game closes."""
+        self._stop_lan_server()
+
+    def _update_rects(self):
+        """Updates all rect positions after a resize."""
+        # Menu button (top right corner)
+        self.menu_button_rect = pygame.Rect(self.screen_width - 55, 10, 40, 40)
+
+        # Timer display area (to the left of menu button)
+        self.timer_rect = pygame.Rect(self.screen_width - 170, 10, 110, 40)
+
+        # Main menu panel (centered)
+        self.menu_rect = pygame.Rect(
+            (self.screen_width - self.menu_width) // 2,
+            (self.screen_height - self.menu_height) // 2,
+            self.menu_width,
+            self.menu_height,
+        )
+
     def _find_greek_font(self):
         """Finds the best available Greek-style font on the system."""
         available_fonts = pygame.font.get_fonts()
@@ -241,13 +347,6 @@ class MainMenu:
 
     def toggle_menu(self):
         """Toggles the main menu visibility."""
-        # Prevent rapid toggling (debounce)
-        current_time = time.time()
-        if hasattr(self, "_last_toggle_time"):
-            if current_time - self._last_toggle_time < 0.2:  # 200ms debounce
-                return
-        self._last_toggle_time = current_time
-
         if self.is_open:
             self.close_menu()
         else:
@@ -270,31 +369,26 @@ class MainMenu:
         self.is_in_new_game_setup = True
         self.game_settings = GameSettings()  # Reset settings
 
-    def handle_event(self, event, from_menu_button=False):
+    def handle_event(self, event):
         """
         Handles pygame events for the menu.
-
-        Args:
-            event: The pygame event
-            from_menu_button: If True, this was triggered by the menu button click
 
         Returns:
             str or None: "new_game" if starting a new game, "resume" if resuming, None otherwise
         """
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-            return self._handle_click(event.pos, from_menu_button)
+            return self._handle_click(event.pos)
 
         if event.type == pygame.KEYDOWN:
             return self._handle_keydown(event)
 
         return None
 
-    def _handle_click(self, pos, from_menu_button=False):
+    def _handle_click(self, pos):
         """Handles mouse clicks."""
-        # Menu toggle button click is handled separately in main game loop
-        # to prevent event duplication
-        if not from_menu_button and self.menu_button_rect.collidepoint(pos):
-            # Don't handle here - let main loop handle it
+        # Menu toggle button
+        if self.menu_button_rect.collidepoint(pos):
+            self.toggle_menu()
             return None
 
         if not self.is_open:
@@ -320,6 +414,18 @@ class MainMenu:
         if self.resume_button_rect and self.resume_button_rect.collidepoint(pos):
             self.close_menu()
             return "resume"
+
+        # LAN Server toggle
+        if self.lan_server_button_rect and self.lan_server_button_rect.collidepoint(
+            pos
+        ):
+            self.toggle_lan_server()
+            return None
+            
+        # Music toggle
+        if self.music_button_rect and self.music_button_rect.collidepoint(pos):
+            self.music_enabled = not self.music_enabled
+            return "toggle_music"
 
         return None
 
@@ -404,31 +510,34 @@ class MainMenu:
         return None
 
     def draw(self, surface, game_in_progress=False, turn_time=0, total_time=0):
-        """Draws the menu button, timers, and menu if open."""
-        # Always draw timers (to the left of menu button)
+        """Draws the menu elements. Call once per frame."""
+        if self.is_open:
+            # Draw semi-transparent overlay
+            overlay = pygame.Surface(
+                (self.screen_width, self.screen_height), pygame.SRCALPHA
+            )
+            overlay.fill((0, 0, 0, 180))
+            surface.blit(overlay, (0, 0))
+
+            if self.is_in_new_game_setup:
+                self._draw_setup_screen(surface)
+            else:
+                self._draw_main_menu(surface, game_in_progress)
+
+        # Always draw timers and button last (on top)
         self._draw_timers(surface, turn_time, total_time)
-
-        # Always draw the menu toggle button
         self._draw_menu_button(surface)
-
-        if not self.is_open:
-            return
-
-        # Draw semi-transparent overlay
-        overlay = pygame.Surface(
-            (self.screen_width, self.screen_height), pygame.SRCALPHA
-        )
-        overlay.fill((0, 0, 0, 180))
-        surface.blit(overlay, (0, 0))
-
-        if self.is_in_new_game_setup:
-            self._draw_setup_screen(surface)
-        else:
-            self._draw_main_menu(surface, game_in_progress)
 
     def _draw_timers(self, surface, turn_time, total_time):
         """Draws the turn timer and total game timer."""
-        # Draw timer background panel
+        # Draw timer background panel with shadow
+        shadow_rect = self.timer_rect.copy()
+        shadow_rect.x += 2
+        shadow_rect.y += 2
+        pygame.draw.rect(
+            surface, (0, 0, 0, 100), shadow_rect, border_radius=self.corner_radius
+        )
+
         pygame.draw.rect(
             surface, DARK_PANEL, self.timer_rect, border_radius=self.corner_radius
         )
@@ -461,7 +570,15 @@ class MainMenu:
         mouse_pos = pygame.mouse.get_pos()
         hover = self.menu_button_rect.collidepoint(mouse_pos)
 
-        bg_color = DARK_PANEL if not hover else (45, 40, 35)
+        # Draw shadow
+        shadow_rect = self.menu_button_rect.copy()
+        shadow_rect.x += 2
+        shadow_rect.y += 2
+        pygame.draw.rect(
+            surface, (0, 0, 0, 100), shadow_rect, border_radius=self.corner_radius
+        )
+
+        bg_color = (45, 40, 35) if hover else DARK_PANEL
         border_color = GOLD_BRIGHT if hover else GOLD_ACCENT
 
         pygame.draw.rect(
@@ -616,11 +733,89 @@ class MainMenu:
             self._draw_button(
                 surface, self.resume_button_rect, "Resume Game", self.font
             )
+            y += button_height + 20
         else:
             self.resume_button_rect = None
 
+        # LAN Server toggle button
+        lan_button_width = 220
+        lan_button_x = self.menu_rect.centerx - lan_button_width // 2
+        self.lan_server_button_rect = pygame.Rect(lan_button_x, y, lan_button_width, 40)
+
+        # Draw LAN server button with status
+        mouse_pos = pygame.mouse.get_pos()
+        hover = self.lan_server_button_rect.collidepoint(mouse_pos)
+
+        if self.lan_server_running:
+            btn_text = "LAN Server: ON"
+            bg_color = (30, 80, 30)  # Green tint
+            border_color = (100, 200, 100) if hover else (80, 160, 80)
+        else:
+            btn_text = "LAN Server: OFF"
+            bg_color = DARK_PANEL
+            border_color = GOLD_BRIGHT if hover else GOLD_ACCENT
+
+        pygame.draw.rect(
+            surface, bg_color, self.lan_server_button_rect, border_radius=6
+        )
+        pygame.draw.rect(
+            surface, border_color, self.lan_server_button_rect, 2, border_radius=6
+        )
+
+        btn_surf = self.small_font.render(btn_text, True, BONE_WHITE)
+        btn_rect = btn_surf.get_rect(center=self.lan_server_button_rect.center)
+        surface.blit(btn_surf, btn_rect)
+
+        y += 45
+
+        # Show IP address when server is running
+        if self.lan_server_running:
+            ip_text = f"ws://{self.local_ip}:8765"
+            ip_surf = self.small_font.render(ip_text, True, (100, 200, 100))
+            ip_rect = ip_surf.get_rect(centerx=self.menu_rect.centerx, top=y)
+            surface.blit(ip_surf, ip_rect)
+            y += 25
+            
+        y += 10
+            
+        # Music Toggle Button
+        music_button_width = 150
+        music_button_x = self.menu_rect.centerx - music_button_width // 2
+        self.music_button_rect = pygame.Rect(music_button_x, y, music_button_width, 35)
+        
+        music_text = "Music: ON" if self.music_enabled else "Music: OFF"
+        # Draw music button
+        mouse_pos = pygame.mouse.get_pos()
+        hover = self.music_button_rect.collidepoint(mouse_pos)
+        
+        bg_col = DARK_PANEL
+        border_col = GOLD_BRIGHT if hover else (120, 110, 100)
+        text_col = BONE_WHITE if self.music_enabled else (100, 100, 100)
+        
+        pygame.draw.rect(surface, bg_col, self.music_button_rect, border_radius=6)
+        pygame.draw.rect(surface, border_col, self.music_button_rect, 2, border_radius=6)
+        
+        m_surf = self.small_font.render(music_text, True, text_col)
+        m_rect = m_surf.get_rect(center=self.music_button_rect.center)
+        surface.blit(m_surf, m_rect)
+        
+        y += 50
+
         # Instructions at bottom
-        y = self.menu_rect.bottom - 50
+        y = self.menu_rect.bottom - 70
+
+        # Brief description
+        desc_lines = [
+            "Catch chickens (grass) & gold (granite) for money!",
+            "Black chicken/shiny gold = 3g. SHIFT+click to upgrade buildings.",
+        ]
+        for line in desc_lines:
+            desc_surf = self.small_font.render(line, True, (140, 135, 125))
+            desc_rect = desc_surf.get_rect(centerx=self.menu_rect.centerx, top=y)
+            surface.blit(desc_surf, desc_rect)
+            y += 20
+
+        y += 5
         hint_surf = self.small_font.render(
             "Press ESC or click outside to close", True, (100, 95, 90)
         )

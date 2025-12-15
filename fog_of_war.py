@@ -6,7 +6,7 @@ class FogOfWar:
 
     # Visibility constants
     CAPITAL_VISIBILITY_RADIUS = 3  # 7x7 area around capitals
-    DEFAULT_CHARACTER_VISIBILITY_RADIUS = 2  # 5x5 area around characters (default)
+    DEFAULT_CHARACTER_VISIBILITY_RADIUS = 3  # 7x7 area around characters (default)
 
     def __init__(self, map_width, map_height):
         """
@@ -71,12 +71,13 @@ class FogOfWar:
         self.fog_tile_surface = fog_surf
         return fog_surf
 
-    def update_team_visibility(self, team):
+    def update_team_visibility(self, team, all_teams=None):
         """
         Updates the revealed tiles for a team based on their capitals and characters.
 
         Args:
             team: The Team object to update visibility for.
+            all_teams: Optional list of all teams (needed for King's ability).
         """
         # Reveal around capitals
         for capital in team.capitals:
@@ -90,10 +91,21 @@ class FogOfWar:
             )
             team.reveal_area(character.x, character.y, visibility)
 
-        # Reveal around seers (they have larger visibility)
+            # King's special ability: reveal enemy fog of war
+            if (
+                hasattr(character, "can_see_enemy_fog")
+                and character.can_see_enemy_fog()
+                and not character.is_dead()
+            ):
+                if all_teams:
+                    for other_team in all_teams:
+                        if other_team != team:
+                            # Copy all of enemy's revealed tiles to this team
+                            team.revealed_tiles.update(other_team.revealed_tiles)
+
+        # Reveal around seers (they have larger visibility - 15x15)
         if hasattr(team, "seers"):
             for seer in team.seers:
-                # Seers have VISIBILITY_RANGE = 6, which gives 12x12 visibility
                 from seer import Seer
 
                 team.reveal_area(seer.x, seer.y, Seer.VISIBILITY_RANGE)

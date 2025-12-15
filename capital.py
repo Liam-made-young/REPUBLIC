@@ -9,9 +9,11 @@ class Capital:
     VISIBILITY_RADIUS = 3  # Initial fog of war reveal radius
     MIN_DISTANCE_FROM_OTHER_CAPITALS = 14  # Minimum tiles between capitals
     COST = 10  # Money cost to create a new capital
+    UPGRADE_COST = 18  # Money cost to upgrade capital
     MAX_CHARACTERS_PER_CAPITAL = (
         3  # Maximum characters that can be spawned from this capital
     )
+    INCOME_PER_TURN = 1  # Gold generated per turn
 
     # Class variable to track unique IDs
     _next_id = 0
@@ -35,6 +37,61 @@ class Capital:
         self.spawned_characters = 0  # Total characters spawned from this capital
         self.spawned_this_turn = False  # Whether a character was spawned this turn
 
+        # Upgrade state
+        self.is_upgraded = False  # When upgraded, troop costs are halved
+
+    @property
+    def has_spawned_this_turn(self):
+        """Alias for spawned_this_turn for compatibility."""
+        return self.spawned_this_turn
+
+    def get_troop_cost_multiplier(self):
+        """
+        Returns the cost multiplier for troops spawned from this capital.
+
+        Returns:
+            float: 0.5 if upgraded, 1.0 otherwise.
+        """
+        return 0.5 if self.is_upgraded else 1.0
+
+    def get_adjusted_troop_cost(self, base_cost):
+        """
+        Returns the adjusted cost for a troop based on upgrade status.
+
+        Args:
+            base_cost: The base cost of the troop.
+
+        Returns:
+            int: The adjusted cost (half if upgraded, rounded up).
+        """
+        if self.is_upgraded:
+            return max(1, (base_cost + 1) // 2)  # Round up, minimum 1
+        return base_cost
+
+    def can_upgrade(self):
+        """
+        Checks if this capital can be upgraded.
+
+        Returns:
+            bool: True if not already upgraded and team can afford it.
+        """
+        return not self.is_upgraded and self.team.can_afford(self.UPGRADE_COST)
+
+    def upgrade(self):
+        """
+        Upgrades this capital (halves troop costs).
+
+        Returns:
+            bool: True if upgrade was successful.
+        """
+        if not self.can_upgrade():
+            return False
+
+        self.team.spend_money(self.UPGRADE_COST)
+        self.is_upgraded = True
+        print(f"Capital at ({self.x}, {self.y}) upgraded! Troop costs halved.")
+        return True
+
     def can_spawn_character(self):
         """
         Checks if this capital can spawn another character.
@@ -54,6 +111,20 @@ class Capital:
         """
         self.spawned_characters += 1
         self.spawned_this_turn = True
+
+    def generate_income(self):
+        """
+        Generates income for the owning team.
+
+        Returns:
+            int: Amount of gold generated.
+        """
+        income = self.INCOME_PER_TURN
+        if self.is_upgraded:
+            income *= 2  # Double income if upgraded
+            
+        self.team.add_money(income)
+        return income
 
     def reset_turn(self):
         """Resets turn-specific state (called at the start of the team's turn)."""
@@ -175,14 +246,22 @@ class Capital:
         pygame.draw.circle(surface, self.team.dark_color, (center_x, center_y), radius)
         pygame.draw.circle(surface, self.team.color, (center_x, center_y), radius, 3)
 
-        # Draw the 'C' letter
+        # If upgraded, draw a golden ring
+        if self.is_upgraded:
+            pygame.draw.circle(
+                surface, (255, 215, 0), (center_x, center_y), radius + 2, 2
+            )
+
+        # Draw the 'C' letter (or 'C+' if upgraded)
         if font is None:
             font = pygame.font.Font(None, tile_size)
 
         text_color = (255, 255, 255)  # White text
-        text_surf = font.render("C", True, text_color)
+        text = "C+" if self.is_upgraded else "C"
+        text_surf = font.render(text, True, text_color)
         text_rect = text_surf.get_rect(center=(center_x, center_y))
         surface.blit(text_surf, text_rect)
 
     def __repr__(self):
-        return f"Capital(id={self.id}, team={self.team.name}, pos=({self.x},{self.y}), spawns={self.spawned_characters}/{self.MAX_CHARACTERS_PER_CAPITAL})"
+        upgrade_str = " [UPGRADED]" if self.is_upgraded else ""
+        return f"Capital(id={self.id}, team={self.team.name}, pos=({self.x},{self.y}), spawns={self.spawned_characters}/{self.MAX_CHARACTERS_PER_CAPITAL}{upgrade_str})"

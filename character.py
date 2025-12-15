@@ -8,6 +8,8 @@ class CharacterType:
     SWORDSMAN = "swordsman"
     SHIELDMAN = "shieldman"
     RUNNER = "runner"
+    TANK = "tank"
+    KING = "king"
 
     # Stats: (max_health, damage, movement_range, visibility_range, cost, sprite_prefix)
     STATS = {
@@ -15,7 +17,9 @@ class CharacterType:
             "max_health": 10,
             "damage": 5,
             "movement_range": 3,
-            "visibility_range": 2,  # 5x5 visibility
+            "movement_range": 3,
+            "visibility_range": 3,  # 7x7 visibility
+            "cost": 2,
             "cost": 2,
             "sprite_prefix": "char",
         },
@@ -23,7 +27,9 @@ class CharacterType:
             "max_health": 15,
             "damage": 10,
             "movement_range": 3,
-            "visibility_range": 2,  # 5x5 visibility
+            "movement_range": 3,
+            "visibility_range": 3,  # 7x7 visibility
+            "cost": 5,
             "cost": 5,
             "sprite_prefix": "sword",
         },
@@ -31,7 +37,9 @@ class CharacterType:
             "max_health": 20,
             "damage": 2,
             "movement_range": 2,
-            "visibility_range": 2,  # 5x5 visibility
+            "movement_range": 2,
+            "visibility_range": 3,  # 7x7 visibility
+            "cost": 3,
             "cost": 3,
             "sprite_prefix": "shield",
         },
@@ -39,9 +47,34 @@ class CharacterType:
             "max_health": 5,
             "damage": 4,  # One less damage than others
             "movement_range": 10,
-            "visibility_range": 4,  # 9x9 visibility (4 tiles in each direction)
+            "damage": 4,  # One less damage than others
+            "movement_range": 10,
+            "visibility_range": 6,  # 13x13 visibility (6 tiles in each direction, ~1.5x of 4)
+            "cost": 5,
             "cost": 5,
             "sprite_prefix": "runner",
+        },
+        TANK: {
+            "max_health": 30,
+            "damage": 20,
+            "movement_range": 10,  # Same as runner
+            "movement_range": 10,  # Same as runner
+            "visibility_range": 6,  # Same as runner (13x13)
+            "cost": 12,
+            "cost": 12,
+            "sprite_prefix": "tank",
+            "chain_kills": 4,  # Can chain up to 4 move/attacks on kills
+        },
+        KING: {
+            "max_health": 1,  # Very fragile - protect at all costs!
+            "damage": 0,  # Cannot attack
+            "movement_range": 2,  # Slow and regal
+            "movement_range": 2,  # Slow and regal
+            "visibility_range": 4,  # 9x9 personal visibility (slightly better than default)
+            "cost": 20,
+            "cost": 20,
+            "sprite_prefix": "king",
+            "reveals_enemy_fog": True,  # Special ability: sees through enemy fog
         },
     }
 
@@ -58,7 +91,14 @@ class CharacterType:
     @classmethod
     def get_all_types(cls):
         """Returns a list of all character types."""
-        return [cls.WARRIOR, cls.SWORDSMAN, cls.SHIELDMAN, cls.RUNNER]
+        return [
+            cls.WARRIOR,
+            cls.SWORDSMAN,
+            cls.SHIELDMAN,
+            cls.RUNNER,
+            cls.TANK,
+            cls.KING,
+        ]
 
 
 class Character:
@@ -92,8 +132,14 @@ class Character:
         self.health = self.max_health
         self.damage = stats["damage"]
         self.movement_range = stats["movement_range"]
-        self.visibility_range = stats.get("visibility_range", 2)  # Default 5x5
+        self.damage = stats["damage"]
+        self.movement_range = stats["movement_range"]
+        self.visibility_range = stats.get("visibility_range", 3)  # Default 7x7
         self.sprite_prefix = stats["sprite_prefix"]
+        self.sprite_prefix = stats["sprite_prefix"]
+        self.chain_kills = stats.get("chain_kills", 0)  # Max chain kills (Tank only)
+        self.chain_kills_remaining = 0  # Remaining chain actions this turn
+        self.reveals_enemy_fog = stats.get("reveals_enemy_fog", False)  # King ability
 
         # Sprite surface (pre-colored, no tinting needed)
         self.sprite = None
@@ -193,6 +239,7 @@ class Character:
     def reset_turn(self):
         """Resets turn-specific state (called at the start of the team's turn)."""
         self.has_moved = False
+        self.chain_kills_remaining = self.chain_kills  # Reset chain kills for tanks
 
     def can_act(self):
         """
@@ -202,6 +249,32 @@ class Character:
             bool: True if the character hasn't moved and isn't dead.
         """
         return not self.has_moved and not self.is_dead()
+
+    def on_kill(self):
+        """
+        Called when this character kills an enemy.
+        For tanks, grants another action if chain kills remain.
+
+        Returns:
+            bool: True if the character can act again (chain kill).
+        """
+        if self.chain_kills_remaining > 0:
+            self.chain_kills_remaining -= 1
+            self.has_moved = False  # Allow another action
+            return True
+        return False
+
+    def is_tank(self):
+        """Returns True if this character is a Tank."""
+        return self.char_type == CharacterType.TANK
+
+    def is_king(self):
+        """Returns True if this character is a King."""
+        return self.char_type == CharacterType.KING
+
+    def can_see_enemy_fog(self):
+        """Returns True if this character can see through enemy fog of war."""
+        return self.reveals_enemy_fog
 
     def get_type_display_name(self):
         """Returns a display-friendly name for the character type."""

@@ -83,14 +83,14 @@ class UIManager:
             screen_width - 145, self.panel_margin + 110, 130, 35
         )
 
-        # Creation menu panel (appears when toggled) - made taller for seer option
+        # Creation menu panel (appears when toggled) - made taller for all building options
         self.creation_menu_rect = pygame.Rect(
-            screen_width - 250, self.panel_margin + 155, 235, 130
+            screen_width - 250, self.panel_margin + 155, 235, 260
         )
 
         # Character creation menu (appears when clicking capital)
         self.char_menu_width = 280
-        self.char_menu_height = 220
+        self.char_menu_height = 400
         self.char_menu_rect = pygame.Rect(
             (screen_width - self.char_menu_width) // 2,
             (screen_height - self.char_menu_height) // 2,
@@ -105,8 +105,15 @@ class UIManager:
         # Corner radius for rounded UI elements
         self.corner_radius = 8
 
-        # Seer spawn button rect (initialized in draw method)
+        # Building button rects (initialized in draw method)
+        self.capital_button_rect = pygame.Rect(0, 0, 0, 0)
         self.seer_button_rect = pygame.Rect(0, 0, 0, 0)
+        self.hospital_button_rect = pygame.Rect(0, 0, 0, 0)
+        self.mine_button_rect = pygame.Rect(0, 0, 0, 0)
+        self.upgrade_cap_button_rect = pygame.Rect(0, 0, 0, 0)
+
+        # Placement mode tracking
+        self.placement_mode = None  # None, "capital", "hospital", or "mine"
 
         # Bottom instruction bar
         self.instructions_height = 35
@@ -114,6 +121,47 @@ class UIManager:
             0,
             screen_height - self.instructions_height,
             screen_width,
+            self.instructions_height,
+        )
+
+    def _update_rects(self):
+        """Updates all rect positions after a resize."""
+        # Top left info panel
+        self.info_panel_rect = pygame.Rect(
+            self.panel_margin, self.panel_margin, 200, 140
+        )
+
+        # End Turn button (top right, moved down to avoid menu button overlap)
+        self.end_turn_button_rect = pygame.Rect(
+            self.screen_width - 145, self.panel_margin + 55, 130, 45
+        )
+
+        # Creation menu button (below end turn)
+        self.creation_menu_button_rect = pygame.Rect(
+            self.screen_width - 145, self.panel_margin + 110, 130, 35
+        )
+
+        # Creation menu panel (appears when toggled)
+        self.creation_menu_rect = pygame.Rect(
+            self.screen_width - 250, self.panel_margin + 155, 235, 260
+        )
+
+        # Character creation menu (appears when clicking capital)
+        self.char_menu_rect = pygame.Rect(
+            (self.screen_width - self.char_menu_width) // 2,
+            (self.screen_height - self.char_menu_height) // 2,
+            self.char_menu_width,
+            self.char_menu_height,
+        )
+
+        # Update char buttons positions
+        self._setup_char_buttons()
+
+        # Bottom instruction bar
+        self.instructions_rect = pygame.Rect(
+            0,
+            self.screen_height - self.instructions_height,
+            self.screen_width,
             self.instructions_height,
         )
 
@@ -145,6 +193,8 @@ class UIManager:
             ("swordsman", "Swordsman", 5, "15 HP, 10 DMG, 3 MOV"),
             ("shieldman", "Shieldman", 3, "20 HP, 2 DMG, 2 MOV"),
             ("runner", "Runner", 5, "5 HP, 4 DMG, 10 MOV, 9x9 VIS"),
+            ("tank", "Tank", 12, "30 HP, 20 DMG, 10 MOV, Chain x4"),
+            ("king", "King", 20, "1 HP, 0 DMG - REVEALS FOG"),
         ]
 
         self.char_buttons = []
@@ -164,6 +214,16 @@ class UIManager:
                     "stats": stats,
                 }
             )
+
+        # Upgrade button setup
+        # Upgrade button setup (positioned after characters)
+        last_button_bottom = self.char_buttons[-1]["rect"].bottom if self.char_buttons else start_y
+        self.upgrade_cap_button_rect = pygame.Rect(
+            self.char_menu_rect.centerx - 100,
+            last_button_bottom + 15,
+            200,
+            30
+        )
 
     def draw(self, surface, game_state, teams):
         """Draws all UI elements onto the given surface."""
@@ -523,41 +583,59 @@ class UIManager:
         )
 
     def _draw_creation_menu(self, surface, current_team):
-        """Draws the creation menu dropdown."""
+        """Draws the creation menu dropdown with clickable buttons."""
         self._draw_ornate_panel(surface, self.creation_menu_rect)
 
         x = self.creation_menu_rect.x + self.panel_padding
         y = self.creation_menu_rect.y + self.panel_padding
+        mouse_pos = pygame.mouse.get_pos()
 
-        # Title - Capital
-        title_surf = self.small_font.render("Create Capital", True, GOLD_ACCENT)
-        surface.blit(title_surf, (x, y))
-
-        y += 22
-
-        # Cost info
+        # === CAPITAL SECTION ===
         from capital import Capital
 
+        title_surf = self.small_font.render("Create Capital", True, GOLD_ACCENT)
+        surface.blit(title_surf, (x, y))
+        y += 20
+
+        can_afford_cap = current_team.can_afford(Capital.COST)
         cost_text = f"Cost: {Capital.COST} gold"
-        can_afford = current_team.can_afford(Capital.COST)
-        cost_color = MONEY_GOLD if can_afford else (100, 100, 100)
+        cost_color = MONEY_GOLD if can_afford_cap else (100, 100, 100)
         cost_surf = self.tiny_font.render(cost_text, True, cost_color)
         surface.blit(cost_surf, (x, y))
 
-        y += 18
+        # Capital button
+        self.capital_button_rect = pygame.Rect(x + 100, y - 3, 80, 22)
+        cap_hover = self.capital_button_rect.collidepoint(mouse_pos) and can_afford_cap
+        cap_selected = self.placement_mode == "capital"
 
-        # Instructions
-        if can_afford:
-            inst_text = "Click on map to place"
-        else:
-            inst_text = "Not enough gold!"
+        cap_bg = (
+            (60, 50, 40)
+            if cap_selected
+            else ((40, 36, 30) if cap_hover else DARK_PANEL)
+        )
+        cap_border = (
+            GOLD_BRIGHT
+            if (cap_hover or cap_selected)
+            else (DARK_BORDER if can_afford_cap else (50, 45, 40))
+        )
+        cap_text_color = (
+            GOLD_BRIGHT
+            if cap_selected
+            else (BONE_WHITE if can_afford_cap else (80, 75, 70))
+        )
 
-        inst_color = BONE_WHITE if can_afford else (150, 80, 80)
-        inst_surf = self.tiny_font.render(inst_text, True, inst_color)
-        surface.blit(inst_surf, (x, y))
+        pygame.draw.rect(surface, cap_bg, self.capital_button_rect, border_radius=4)
+        pygame.draw.rect(
+            surface, cap_border, self.capital_button_rect, 1, border_radius=4
+        )
+
+        cap_btn_text = "Placing..." if cap_selected else "Place"
+        cap_text_surf = self.tiny_font.render(cap_btn_text, True, cap_text_color)
+        cap_text_rect = cap_text_surf.get_rect(center=self.capital_button_rect.center)
+        surface.blit(cap_text_surf, cap_text_rect)
 
         # Separator
-        y += 22
+        y += 26
         pygame.draw.line(
             surface,
             DARK_BORDER,
@@ -567,39 +645,170 @@ class UIManager:
         )
         y += 8
 
-        # Title - Seer
+        # === SEER SECTION ===
         from seer import Seer
 
         seer_title = self.small_font.render("Spawn Seer (Scout)", True, GOLD_ACCENT)
         surface.blit(seer_title, (x, y))
-
         y += 20
 
-        seer_cost_text = f"Cost: {Seer.COST} gold"
         can_afford_seer = current_team.can_afford(Seer.COST)
+        seer_cost_text = f"Cost: {Seer.COST} gold"
         seer_cost_color = MONEY_GOLD if can_afford_seer else (100, 100, 100)
         seer_cost_surf = self.tiny_font.render(seer_cost_text, True, seer_cost_color)
         surface.blit(seer_cost_surf, (x, y))
 
-        # Store seer button rect for click detection
+        # Seer button
         self.seer_button_rect = pygame.Rect(x + 100, y - 3, 80, 22)
+        seer_hover = self.seer_button_rect.collidepoint(mouse_pos) and can_afford_seer
 
-        # Draw spawn seer button
-        mouse_pos = pygame.mouse.get_pos()
-        hover = self.seer_button_rect.collidepoint(mouse_pos) and can_afford_seer
-
-        btn_bg = (40, 36, 30) if hover else DARK_PANEL
-        btn_border = (
-            GOLD_BRIGHT if hover else (DARK_BORDER if can_afford_seer else (50, 45, 40))
+        seer_bg = (40, 36, 30) if seer_hover else DARK_PANEL
+        seer_border = (
+            GOLD_BRIGHT
+            if seer_hover
+            else (DARK_BORDER if can_afford_seer else (50, 45, 40))
         )
-        btn_text_color = BONE_WHITE if can_afford_seer else (80, 75, 70)
+        seer_text_color = BONE_WHITE if can_afford_seer else (80, 75, 70)
 
-        pygame.draw.rect(surface, btn_bg, self.seer_button_rect, border_radius=4)
-        pygame.draw.rect(surface, btn_border, self.seer_button_rect, 1, border_radius=4)
+        pygame.draw.rect(surface, seer_bg, self.seer_button_rect, border_radius=4)
+        pygame.draw.rect(
+            surface, seer_border, self.seer_button_rect, 1, border_radius=4
+        )
 
-        spawn_text = self.tiny_font.render("Spawn", True, btn_text_color)
-        spawn_rect = spawn_text.get_rect(center=self.seer_button_rect.center)
-        surface.blit(spawn_text, spawn_rect)
+        seer_text_surf = self.tiny_font.render("Spawn", True, seer_text_color)
+        seer_text_rect = seer_text_surf.get_rect(center=self.seer_button_rect.center)
+        surface.blit(seer_text_surf, seer_text_rect)
+
+        # Separator
+        y += 26
+        pygame.draw.line(
+            surface,
+            DARK_BORDER,
+            (x, y),
+            (self.creation_menu_rect.right - self.panel_padding, y),
+            1,
+        )
+        y += 8
+
+        # === HOSPITAL SECTION ===
+        from hospital import Hospital
+
+        hosp_title = self.small_font.render("Build Hospital", True, GOLD_ACCENT)
+        surface.blit(hosp_title, (x, y))
+        y += 20
+
+        can_afford_hosp = current_team.can_afford(Hospital.BUILD_COST)
+        hosp_cost_text = f"Cost: {Hospital.BUILD_COST} gold"
+        hosp_cost_color = MONEY_GOLD if can_afford_hosp else (100, 100, 100)
+        hosp_cost_surf = self.tiny_font.render(hosp_cost_text, True, hosp_cost_color)
+        surface.blit(hosp_cost_surf, (x, y))
+
+        # Hospital button
+        self.hospital_button_rect = pygame.Rect(x + 100, y - 3, 80, 22)
+        hosp_hover = (
+            self.hospital_button_rect.collidepoint(mouse_pos) and can_afford_hosp
+        )
+        hosp_selected = self.placement_mode == "hospital"
+
+        hosp_bg = (
+            (60, 50, 40)
+            if hosp_selected
+            else ((40, 36, 30) if hosp_hover else DARK_PANEL)
+        )
+        hosp_border = (
+            GOLD_BRIGHT
+            if (hosp_hover or hosp_selected)
+            else (DARK_BORDER if can_afford_hosp else (50, 45, 40))
+        )
+        hosp_text_color = (
+            GOLD_BRIGHT
+            if hosp_selected
+            else (BONE_WHITE if can_afford_hosp else (80, 75, 70))
+        )
+
+        pygame.draw.rect(surface, hosp_bg, self.hospital_button_rect, border_radius=4)
+        pygame.draw.rect(
+            surface, hosp_border, self.hospital_button_rect, 1, border_radius=4
+        )
+
+        hosp_btn_text = "Placing..." if hosp_selected else "Place"
+        hosp_text_surf = self.tiny_font.render(hosp_btn_text, True, hosp_text_color)
+        hosp_text_rect = hosp_text_surf.get_rect(
+            center=self.hospital_button_rect.center
+        )
+        surface.blit(hosp_text_surf, hosp_text_rect)
+
+        # Separator
+        y += 26
+        pygame.draw.line(
+            surface,
+            DARK_BORDER,
+            (x, y),
+            (self.creation_menu_rect.right - self.panel_padding, y),
+            1,
+        )
+        y += 8
+
+        # === MINE SECTION ===
+        from mine import Mine
+
+        mine_title = self.small_font.render("Build Mine", True, GOLD_ACCENT)
+        surface.blit(mine_title, (x, y))
+        y += 20
+
+        can_afford_mine = current_team.can_afford(Mine.BUILD_COST)
+        mine_cost_text = f"Cost: {Mine.BUILD_COST}g (+1g/turn)"
+        mine_cost_color = MONEY_GOLD if can_afford_mine else (100, 100, 100)
+        mine_cost_surf = self.tiny_font.render(mine_cost_text, True, mine_cost_color)
+        surface.blit(mine_cost_surf, (x, y))
+
+        # Mine button
+        self.mine_button_rect = pygame.Rect(x + 120, y - 3, 80, 22)
+        mine_hover = self.mine_button_rect.collidepoint(mouse_pos) and can_afford_mine
+        mine_selected = self.placement_mode == "mine"
+
+        mine_bg = (
+            (60, 50, 40)
+            if mine_selected
+            else ((40, 36, 30) if mine_hover else DARK_PANEL)
+        )
+        mine_border = (
+            GOLD_BRIGHT
+            if (mine_hover or mine_selected)
+            else (DARK_BORDER if can_afford_mine else (50, 45, 40))
+        )
+        mine_text_color = (
+            GOLD_BRIGHT
+            if mine_selected
+            else (BONE_WHITE if can_afford_mine else (80, 75, 70))
+        )
+
+        pygame.draw.rect(surface, mine_bg, self.mine_button_rect, border_radius=4)
+        pygame.draw.rect(
+            surface, mine_border, self.mine_button_rect, 1, border_radius=4
+        )
+
+        mine_btn_text = "Placing..." if mine_selected else "Place"
+        mine_text_surf = self.tiny_font.render(mine_btn_text, True, mine_text_color)
+        mine_text_rect = mine_text_surf.get_rect(center=self.mine_button_rect.center)
+        surface.blit(mine_text_surf, mine_text_rect)
+
+        # Granite only note
+        y += 22
+        granite_note = self.tiny_font.render(
+            "(Granite tiles only)", True, (120, 115, 110)
+        )
+        surface.blit(granite_note, (x, y))
+
+        # Show placement instructions at bottom
+        y += 20
+        if self.placement_mode:
+            if self.placement_mode == "mine":
+                inst_text = "Click on GRANITE to place mine. Right-click to cancel."
+            else:
+                inst_text = f"Click on map to place {self.placement_mode}. Right-click to cancel."
+            inst_surf = self.tiny_font.render(inst_text, True, GOLD_BRIGHT)
+            surface.blit(inst_surf, (x, y))
 
     def _draw_character_menu(self, surface, game_state, current_team):
         """Draws the character creation menu when clicking a capital."""
@@ -608,8 +817,14 @@ class UIManager:
         x = self.char_menu_rect.x + self.panel_padding
         y = self.char_menu_rect.y + self.panel_padding
 
+        # Get selected capital to check for upgrade discount
+        selected_capital = game_state.selected_capital
+        is_upgraded = selected_capital and selected_capital.is_upgraded
+
         # Title
         title_text = "Recruit Unit"
+        if is_upgraded:
+            title_text = "Recruit Unit (50% OFF!)"
         title_surf = self.font.render(title_text, True, GOLD_BRIGHT)
         title_rect = title_surf.get_rect(centerx=self.char_menu_rect.centerx, top=y)
         surface.blit(title_surf, title_rect)
@@ -620,7 +835,15 @@ class UIManager:
         for button in self.char_buttons:
             rect = button["rect"]
             hover = rect.collidepoint(mouse_pos)
-            can_afford = current_team.can_afford(button["cost"])
+
+            # Calculate adjusted cost if capital is upgraded
+            base_cost = button["cost"]
+            if is_upgraded:
+                adjusted_cost = max(1, (base_cost + 1) // 2)  # Half price, rounded up
+            else:
+                adjusted_cost = base_cost
+
+            can_afford = current_team.can_afford(adjusted_cost)
 
             # Button colors based on affordability
             if can_afford:
@@ -636,9 +859,19 @@ class UIManager:
             pygame.draw.rect(surface, bg_color, rect, border_radius=4)
             pygame.draw.rect(surface, border_color, rect, 1, border_radius=4)
 
-            # Draw button content
-            name_text = f"{button['name']} (${button['cost']})"
-            name_surf = self.small_font.render(name_text, True, text_color)
+            # Draw button content with adjusted cost display
+            if is_upgraded and adjusted_cost < base_cost:
+                name_text = f"{button['name']} (${adjusted_cost})"
+                # Show strikethrough original price
+                old_price_surf = self.tiny_font.render(
+                    f"${base_cost}", True, (100, 90, 80)
+                )
+                name_surf = self.small_font.render(
+                    name_text, True, (100, 255, 100) if can_afford else text_color
+                )
+            else:
+                name_text = f"{button['name']} (${base_cost})"
+                name_surf = self.small_font.render(name_text, True, text_color)
             name_rect = name_surf.get_rect(midleft=(rect.x + 8, rect.centery - 6))
             surface.blit(name_surf, name_rect)
 
@@ -648,11 +881,53 @@ class UIManager:
             stats_rect = stats_surf.get_rect(midleft=(rect.x + 8, rect.centery + 8))
             surface.blit(stats_surf, stats_rect)
 
+        # Upgrade button if not upgraded
+        if selected_capital and not is_upgraded:
+            from capital import Capital
+            
+            # Recalculate rect based on current menu position
+            # Recalculate rect based on current menu position and last button
+            # Note: We duplicate the logic from _setup_char_buttons so it follows dynamic positioning
+            button_height = 35
+            button_margin = 5
+            start_y = self.char_menu_rect.y + 45
+            last_button_y = start_y + (len(self.char_buttons)-1) * (button_height + button_margin)
+            last_button_bottom = last_button_y + button_height
+            
+            self.upgrade_cap_button_rect = pygame.Rect(
+                self.char_menu_rect.centerx - 100,
+                last_button_bottom + 15,
+                200,
+                30
+            )
+            
+            cost = Capital.UPGRADE_COST
+            can_afford = current_team.can_afford(cost)
+            mouse_pos = pygame.mouse.get_pos()
+            hover = self.upgrade_cap_button_rect.collidepoint(mouse_pos) and can_afford
+            
+            bg_color = (40, 36, 30) if hover else DARK_PANEL
+            border_color = GOLD_BRIGHT if hover else (GOLD_ACCENT if can_afford else (80, 75, 70))
+            text_color = GOLD_BRIGHT if can_afford else (100, 95, 90)
+            
+            pygame.draw.rect(surface, bg_color, self.upgrade_cap_button_rect, border_radius=4)
+            pygame.draw.rect(surface, border_color, self.upgrade_cap_button_rect, 1, border_radius=4)
+            
+            text = f"Upgrade Capital ({cost}g)"
+            text_surf = self.small_font.render(text, True, text_color)
+            text_rect = text_surf.get_rect(center=self.upgrade_cap_button_rect.center)
+            surface.blit(text_surf, text_rect)
+            
+            # Effect text
+            effect_surf = self.tiny_font.render("Double Income + Stronger Units", True, (150, 140, 100))
+            effect_rect = effect_surf.get_rect(centerx=self.char_menu_rect.centerx, top=self.upgrade_cap_button_rect.bottom + 2)
+            surface.blit(effect_surf, effect_rect)
+
         # Close button hint
         close_text = "Click outside to close"
         close_surf = self.tiny_font.render(close_text, True, (120, 115, 105))
         close_rect = close_surf.get_rect(
-            centerx=self.char_menu_rect.centerx, bottom=self.char_menu_rect.bottom - 5
+            centerx=self.char_menu_rect.centerx, bottom=self.char_menu_rect.bottom - 10
         )
         surface.blit(close_surf, close_rect)
 
@@ -679,13 +954,13 @@ class UIManager:
         if game_state.game_over:
             text = "Press ESC to quit"
         elif game_state.show_character_menu:
-            text = "Select a unit to recruit  |  Click outside to cancel"
+            text = "Select a unit to recruit  |  Click outside to cancel  |  SHIFT+Click capital = Upgrade"
         elif game_state.show_creation_menu:
-            text = "Click on valid location to create capital  |  Must be 14+ tiles from other capitals"
+            text = "Click to place building  |  Mines: granite only  |  Right-click to cancel"
         elif game_state.selected_character:
-            text = "Click to move/attack  |  Click character again to deselect  |  WASD: Camera  |  Q/E: Zoom"
+            text = "Click to move/attack  |  Click again to deselect  |  SHIFT+Click building = Upgrade"
         else:
-            text = "Click character to select  |  Click capital to recruit  |  WASD: Camera  |  Q/E: Zoom"
+            text = "Click unit to select  |  Click capital to recruit  |  SHIFT+Click building = Upgrade"
 
         text_surf = self.small_font.render(text, True, BONE_WHITE)
         text_rect = text_surf.get_rect(center=self.instructions_rect.center)
@@ -783,3 +1058,64 @@ class UIManager:
     def is_click_in_creation_menu(self, pos):
         """Checks if a click is within the creation menu area."""
         return self.creation_menu_rect.collidepoint(pos)
+
+    def handle_creation_menu_click(self, pos, current_team):
+        """
+        Handles clicks within the creation menu.
+
+        Returns:
+            str or None: "seer" if seer should spawn, "capital"/"hospital"/"mine" if entering placement mode, None otherwise
+        """
+        from capital import Capital
+        from hospital import Hospital
+        from mine import Mine
+        from seer import Seer
+
+        print(f"DEBUG UI: handle_creation_menu_click at {pos}")
+        print(f"DEBUG UI: capital_button_rect = {self.capital_button_rect}")
+        print(
+            f"DEBUG UI: current money = {current_team.money}, capital cost = {Capital.COST}"
+        )
+
+        # Check capital button
+        if self.capital_button_rect.collidepoint(pos):
+            print("DEBUG UI: Capital button clicked!")
+            if current_team.can_afford(Capital.COST):
+                if self.placement_mode == "capital":
+                    self.placement_mode = None  # Toggle off
+                    print("DEBUG UI: Toggled capital placement OFF")
+                else:
+                    self.placement_mode = "capital"
+                    print("DEBUG UI: Toggled capital placement ON")
+                return "capital_mode"
+            else:
+                print("DEBUG UI: Cannot afford capital")
+
+        # Check seer button - immediate spawn
+        if self.seer_button_rect.collidepoint(pos):
+            if current_team.can_afford(Seer.COST):
+                return "seer"
+
+        # Check hospital button
+        if self.hospital_button_rect.collidepoint(pos):
+            if current_team.can_afford(Hospital.BUILD_COST):
+                if self.placement_mode == "hospital":
+                    self.placement_mode = None  # Toggle off
+                else:
+                    self.placement_mode = "hospital"
+                return "hospital_mode"
+
+        # Check mine button
+        if self.mine_button_rect.collidepoint(pos):
+            if current_team.can_afford(Mine.BUILD_COST):
+                if self.placement_mode == "mine":
+                    self.placement_mode = None  # Toggle off
+                else:
+                    self.placement_mode = "mine"
+                return "mine_mode"
+
+        return None
+
+    def clear_placement_mode(self):
+        """Clears any active placement mode."""
+        self.placement_mode = None

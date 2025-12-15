@@ -72,7 +72,7 @@ class GameState:
 
     def end_turn(self, teams):
         """
-        Advances the turn to the next player.
+        Advances the turn to the next player, skipping defeated players.
 
         Args:
             teams: List of Team objects
@@ -91,11 +91,15 @@ class GameState:
         # Find current player index
         current_index = self.get_current_player_index()
 
-        # Move to next player (wrapping around)
-        next_index = (current_index + 1) % self.num_players
+        # Find next alive player (skip defeated players)
+        next_index = self._find_next_alive_player(current_index, teams)
 
-        # If we wrapped back to player 0, increment turn count
-        if next_index == 0:
+        if next_index is None:
+            # No alive players left (shouldn't happen if victory check works)
+            return
+
+        # Check if we wrapped around (new turn)
+        if next_index <= current_index:
             self.turn_count += 1
 
         # Set the new phase
@@ -104,6 +108,50 @@ class GameState:
         # Reset the new current team's characters and capitals
         if next_index < len(teams):
             self._reset_team_for_turn(teams[next_index])
+            # Generate mine income at the start of turn
+            self._generate_turn_income(teams[next_index])
+
+    def _find_next_alive_player(self, current_index, teams):
+        """
+        Finds the next player who is still alive (not defeated).
+
+        Args:
+            current_index: Current player index.
+            teams: List of Team objects.
+
+        Returns:
+            int or None: Index of next alive player, or None if none found.
+        """
+        checked = 0
+        next_index = (current_index + 1) % self.num_players
+
+        while checked < self.num_players:
+            if next_index < len(teams) and not teams[next_index].is_defeated():
+                return next_index
+            next_index = (next_index + 1) % self.num_players
+            checked += 1
+
+        return None
+
+    def _generate_turn_income(self, team):
+        """
+        Generates income from mines at the start of a team's turn.
+
+        Args:
+            team: The Team object to generate income for.
+        """
+        if hasattr(team, "mines") and team.mines:
+            income = team.generate_mine_income()
+            if income > 0:
+                print(f"{team.name} earned {income} gold from mines")
+
+        if hasattr(team, "capitals") and team.capitals:
+            cap_income = 0
+            for capital in team.capitals:
+                cap_income += capital.generate_income()
+            
+            if cap_income > 0:
+                print(f"{team.name} earned {cap_income} gold from capitals")
 
     def _reset_team_for_turn(self, team):
         """Resets all turn-specific state for a team at the start of their turn."""
@@ -118,6 +166,14 @@ class GameState:
         # Reset all seers
         if hasattr(team, "seers"):
             team.reset_seers_for_turn()
+
+        # Reset all hospitals
+        if hasattr(team, "hospitals"):
+            team.reset_hospitals_for_turn()
+
+        # Reset all mines
+        if hasattr(team, "mines"):
+            team.reset_mines_for_turn()
 
     def select_character(self, character):
         """

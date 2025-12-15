@@ -6,8 +6,8 @@ import noise
 # --- Generation Constants ---
 class GenConst:
     """
-    A container for all constants related to procedural world generation.
-    Tweak these values to change the character of the generated maps.
+    A container for all default constants related to procedural world generation.
+    These are the base values that will be slightly randomized.
     """
 
     # --- Elevation thresholds (0.0 is deep sea, 1.0 is high mountain) ---
@@ -59,6 +59,47 @@ class WorldGenerator:
         self.width = width
         self.height = height
         self.world = World(width, height)
+        self.consts = self._generate_randomized_consts()
+
+    def _generate_randomized_consts(self):
+        """Generates a randomized set of constants based on the base GenConst values."""
+        consts = {}
+        # List of attributes to not randomize (scaling factors might need to stay constant or have different logic)
+        # But user asked for "elevation and different variables... generate slightly more randomly"
+        
+        # Get all attributes from GenConst that are uppercase (constants)
+        attributes = [a for a in dir(GenConst) if not a.startswith('__') and a.isupper()]
+        
+        for attr in attributes:
+            base_val = getattr(GenConst, attr)
+            # Randomize by +/- 10-30%
+            # Generate a random factor between 0.7 and 0.9 (negative variation) or 1.1 and 1.3 (positive variation)
+            # Or simply +/- 10-30% range: 0.7 to 1.3 (excluding 0.9-1.1 maybe? No, "differ 10-30%" implies wide range)
+            # Let's use a simpler approach: random factor between 0.8 and 1.2 (+/- 20%) 
+            # The user asked for "differ 10-30% across the map as a whole"
+            # It implies the *parameters* should vary.
+            
+            # Use 0.8 to 1.2 for most, maybe clamp probabilities 0-1
+            factor = random.uniform(0.8, 1.2)
+            
+            new_val = base_val * factor
+            
+            # Special handling for probabilities (0-1 range)
+            if attr.endswith('LEVEL') or attr.endswith('LIMIT') or attr.endswith('THRESHOLD') or attr.endswith('TEMP'):
+                 new_val = max(0.0, min(1.0, new_val))
+                 
+            # Special handling for Volcano threshold (it's close to 1, so changing it by 20% might make it 1.2 or 0.8)
+            # 0.97 -> 1.1 (no volcanoes) or 0.77 (too many volcanoes)
+            # For thresholds close to 1, we might want to perturb the *gap* to 1.
+            if attr == 'VOLCANO_THRESHOLD':
+                # Base gap is 0.03. Randomize the gap by 10-30%
+                gap = 1.0 - base_val
+                new_gap = gap * random.uniform(0.7, 1.3)
+                new_val = 1.0 - new_gap
+                
+            consts[attr] = new_val
+            
+        return consts
 
     def generate(self):
         """Generate the world map using a multi-pass model. Returns a World object."""
@@ -71,11 +112,11 @@ class WorldGenerator:
 
     def _generate_noise_maps(self):
         seed = random.randint(0, 100)
-        self.world.elevation_map = self._noise_map(GenConst.ELEVATION_SCALE, seed)
-        base_temp_map = self._noise_map(GenConst.TEMP_SCALE, seed + 1)
-        self.world.moisture_map = self._noise_map(GenConst.MOISTURE_SCALE, seed + 2)
-        self.world.roughness_map = self._noise_map(GenConst.ROUGHNESS_SCALE, seed + 3)
-        self.world.volcano_map = self._noise_map(GenConst.VOLCANO_SCALE, seed + 4)
+        self.world.elevation_map = self._noise_map(self.consts['ELEVATION_SCALE'], seed)
+        base_temp_map = self._noise_map(self.consts['TEMP_SCALE'], seed + 1)
+        self.world.moisture_map = self._noise_map(self.consts['MOISTURE_SCALE'], seed + 2)
+        self.world.roughness_map = self._noise_map(self.consts['ROUGHNESS_SCALE'], seed + 3)
+        self.world.volcano_map = self._noise_map(self.consts['VOLCANO_SCALE'], seed + 4)
         self.base_temp_map = base_temp_map  # Store temporarily
 
     def _redistribute_elevation(self):
@@ -88,7 +129,7 @@ class WorldGenerator:
         for y in range(self.height):
             for x in range(self.width):
                 temp_falloff = (
-                    self.world.elevation_map[y][x] * GenConst.TEMP_ALTITUDE_FALLOFF
+                    self.world.elevation_map[y][x] * self.consts['TEMP_ALTITUDE_FALLOFF']
                 )
                 adjusted_temp = self.base_temp_map[y][x] - temp_falloff
                 self.world.temperature_map[y][x] = max(0, min(adjusted_temp, 1))
@@ -111,7 +152,7 @@ class WorldGenerator:
         for y in range(self.height):
             for x in range(self.width):
                 if self.world.world_map[y][x] == "granite":
-                    if self.world.volcano_map[y][x] > GenConst.VOLCANO_THRESHOLD:
+                    if self.world.volcano_map[y][x] > self.consts['VOLCANO_THRESHOLD']:
                         self.world.world_map[y][x] = "lava"
 
     def _place_ice_near_water(self):
@@ -120,7 +161,7 @@ class WorldGenerator:
             for x in range(self.width):
                 if self.world.world_map[y][x] in ["grass", "sand"]:
                     temp = self.world.temperature_map[y][x]
-                    if temp < GenConst.COASTAL_ICE_TEMP_LIMIT:
+                    if temp < self.consts['COASTAL_ICE_TEMP_LIMIT']:
                         if self._is_near_water(x, y):
                             new_map[y][x] = "ice"
         self.world.world_map = new_map
@@ -149,23 +190,23 @@ class WorldGenerator:
         return noise_map
 
     def _get_base_tile_type(self, elevation, temperature, moisture, roughness):
-        if elevation < GenConst.WATER_LEVEL:
+        if elevation < self.consts['WATER_LEVEL']:
             return "water"
-        if elevation < GenConst.SAND_LEVEL:
+        if elevation < self.consts['SAND_LEVEL']:
             return "sand"
 
-        if elevation > GenConst.MOUNTAIN_PEAK_LEVEL:
-            if temperature < GenConst.MOUNTAIN_ICE_TEMP_LIMIT:
+        if elevation > self.consts['MOUNTAIN_PEAK_LEVEL']:
+            if temperature < self.consts['MOUNTAIN_ICE_TEMP_LIMIT']:
                 return "ice"
             return "granite"
-        if elevation > GenConst.MOUNTAIN_LEVEL:
+        if elevation > self.consts['MOUNTAIN_LEVEL']:
             return "granite"
 
-        if temperature > GenConst.HOT_CLIMATE_TEMP:
-            if moisture < GenConst.DESERT_MOISTURE_LIMIT:
+        if temperature > self.consts['HOT_CLIMATE_TEMP']:
+            if moisture < self.consts['DESERT_MOISTURE_LIMIT']:
                 return "sand"
 
-        if roughness > GenConst.ROUGH_TERRAIN_THRESHOLD:
+        if roughness > self.consts['ROUGH_TERRAIN_THRESHOLD']:
             return "granite"
 
         return "grass"
